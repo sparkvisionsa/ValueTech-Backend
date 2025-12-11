@@ -49,6 +49,16 @@ function parseExcelDate(value) {
   return null;
 }
 
+// Format JS Date -> "yyyy-mm-dd" string (or "" if null/invalid)
+function formatDateYyyyMmDd(value) {
+  if (!value) return "";
+  if (!(value instanceof Date)) return value; // assume already formatted string
+  const yyyy = value.getFullYear();
+  const mm = String(value.getMonth() + 1).padStart(2, "0");
+  const dd = String(value.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
 // Try to read total report value from Report Info row
 function getReportTotalValue(reportRow) {
   // Adjust these keys to match your real Excel headers
@@ -73,8 +83,7 @@ exports.processMultiApproachBatch = async (req, res) => {
     if (!req.files || !req.files.excels || !req.files.excels.length) {
       return res.status(400).json({
         status: "failed",
-        error:
-          "At least one Excel file (field 'excels') is required.",
+        error: "At least one Excel file (field 'excels') is required.",
       });
     }
 
@@ -153,7 +162,9 @@ exports.processMultiApproachBatch = async (req, res) => {
         });
       }
 
-      const reportInfoRows = xlsx.utils.sheet_to_json(reportSheet, { defval: "" });
+      const reportInfoRows = xlsx.utils.sheet_to_json(reportSheet, {
+        defval: "",
+      });
       if (!reportInfoRows.length) {
         return res.status(400).json({
           status: "failed",
@@ -173,35 +184,39 @@ exports.processMultiApproachBatch = async (req, res) => {
         report["Client Name"] ||
         "";
 
-          const owner_name =
+      const owner_name =
         report.owner_name ||
         report["owner_name\n"] ||
         report["Owner Name"] ||
         "";
 
-
-
       const purpose_id = report.purpose_id || null;
       const value_premise_id = report.value_premise_id || null;
       const report_type = report.report_type || "";
 
-      const valued_at = parseExcelDate(
-        report.valued_at ||
+      const valued_at = formatDateYyyyMmDd(
+        parseExcelDate(
+          report.valued_at ||
           report["valued_at\n"] ||
           report["Valued At"] ||
           report["valued at"]
+        )
       );
-      const submitted_at = parseExcelDate(
-        report.submitted_at ||
+      const submitted_at = formatDateYyyyMmDd(
+        parseExcelDate(
+          report.submitted_at ||
           report["submitted_at\n"] ||
           report["Submitted At"] ||
           report["submitted at"]
+        )
       );
-      const inspection_date = parseExcelDate(
-        report.inspection_date ||
+      const inspection_date = formatDateYyyyMmDd(
+        parseExcelDate(
+          report.inspection_date ||
           report["inspection_date\n"] ||
           report["Inspection Date"] ||
           report["inspection date"]
+        )
       );
 
       const assumptions = report.assumptions || "";
@@ -224,21 +239,28 @@ exports.processMultiApproachBatch = async (req, res) => {
         if (!assetName) return;
         const asset_usage_id = row.asset_usage_id || null;
         console.log(asset_usage_id);
-        
-        if(!asset_usage_id){
-        
+
+        if (!asset_usage_id) {
           throw new Error(
             `Asset "${row.asset_name}" missing asset usaage id`
-          )
+          );
         }
 
-        const final_value = Number(row.final_value || row["final_value\n"] || 0);
+        const final_value = Number(
+          row.final_value || row["final_value\n"] || 0
+        );
         assets_total_value += final_value;
 
         assets.push({
           asset_id: row.id || index + 1,
           asset_name: assetName,
-          asset_usage_id:asset_usage_id,
+          asset_usage_id: asset_usage_id,
+
+          // repeated report-level fields
+          region,
+          city,
+          owner_name,
+          inspection_date, // yyyy-mm-dd
 
           source_sheet: "market",
           final_value,
@@ -246,14 +268,12 @@ exports.processMultiApproachBatch = async (req, res) => {
           market_approach: "1",
           market_approach_value: final_value.toString(),
 
-          cost_approach: "-",
-          cost_approach_value: "-",
-          
-production_capacity: "0",
-production_capacity_measuring_unit: "0",
-product_type: "0",
 
-          raw: row,
+
+          production_capacity: "0",
+          production_capacity_measuring_unit: "0",
+          product_type: "0",
+
         });
       });
 
@@ -264,83 +284,78 @@ product_type: "0",
 
         const asset_usage_id = row.asset_usage_id || null;
         console.log(asset_usage_id);
-        
-        if(!asset_usage_id){
-        
+
+        if (!asset_usage_id) {
           throw new Error(
             `Asset "${row.asset_name}" missing asset usaage id`
-          )
+          );
         }
 
-
-        // const final_value = Number(row.final_value || row["final_value\n"] || 0);
-
-
         // 1) Extract original value
-    const final_value_raw =
-      row.final_value ||
-      row["final_value\n"] ||
-      row["Final Value"] ||
-        row["value"] ||
-      row["Value"] ||
-      "";
+        const final_value_raw =
+          row.final_value ||
+          row["final_value\n"] ||
+          row["Final Value"] ||
+          row["value"] ||
+          row["Value"] ||
+          "";
 
-// 2) Ensure it's not empty
-if (final_value_raw === "" || final_value_raw === null) {
-  throw new Error(
-    `Asset "${row.asset_name}" has no final_value. It must be an integer.`
-  );
-}
-
-// 3) Convert to number
-const final_value_num = Number(final_value_raw);
-
-// 4) Must be a number
-    if (isNaN(final_value_num)) {
-        throw new Error(
-        `Asset "${row.asset_name}" has invalid final_value "${final_value_raw}". Must be an integer number.`
+        // 2) Ensure it's not empty
+        if (final_value_raw === "" || final_value_raw === null) {
+          throw new Error(
+            `Asset "${row.asset_name}" has no final_value. It must be an integer.`
           );
-      }
+        }
 
-// 5) Must be integer (no decimals allowed)
-      if (!Number.isInteger(final_value_num)) {
-      throw new Error(
-      `Asset "${row.asset_name}" has decimal final_value "${final_value_raw}". Only integer values are allowed.`
-      );
-      }
+        // 3) Convert to number
+        const final_value_num = Number(final_value_raw);
 
-// 6) Must be non-negative
-      if (final_value_num < 0) {
-        throw new Error(
-         `Asset "${row.asset_name}" has negative final_value "${final_value_raw}". Not allowed.`
-     );
-      }
+        // 4) Must be a number
+        if (isNaN(final_value_num)) {
+          throw new Error(
+            `Asset "${row.asset_name}" has invalid final_value "${final_value_raw}". Must be an integer number.`
+          );
+        }
 
-      const final_value = final_value_num; // SAFE INTEGER
+        // 5) Must be integer (no decimals allowed)
+        if (!Number.isInteger(final_value_num)) {
+          throw new Error(
+            `Asset "${row.asset_name}" has decimal final_value "${final_value_raw}". Only integer values are allowed.`
+          );
+        }
 
-        
+        // 6) Must be non-negative
+        if (final_value_num < 0) {
+          throw new Error(
+            `Asset "${row.asset_name}" has negative final_value "${final_value_raw}". Not allowed.`
+          );
+        }
+
+        const final_value = final_value_num; // SAFE INTEGER
 
         assets_total_value += final_value;
 
         assets.push({
           asset_id: row.id || index + 1, // note: may overlap with market; that's ok
           asset_name: assetName,
-          asset_usage_id:asset_usage_id,
+          asset_usage_id: asset_usage_id,
+
+          // repeated report-level fields
+          region,
+          city,
+          owner_name,
+          inspection_date, // yyyy-mm-dd
+
           source_sheet: "cost",
           final_value,
-        
-
-          market_approach: "-",
-          market_approach_value: "-",
-          
 
           cost_approach: "1",
           cost_approach_value: final_value.toString(),
-          production_capacity: "0",
-production_capacity_measuring_unit: "0",
-product_type: "0",
 
-          raw: row,
+          production_capacity: "0",
+          production_capacity_measuring_unit: "0",
+          product_type: "0",
+
         });
       });
 
@@ -362,6 +377,13 @@ product_type: "0",
         });
       }
 
+      // If you want exactly one PDF per Excel, uncomment this:
+      // if (pdfs.length !== 1) {
+      //   throw new Error(
+      //     `Excel "${file.originalname}" must have exactly one matching PDF, but found ${pdfs.length}.`
+      //   );
+      // }
+
       // 3.4 Build document for this Excel
       docsToInsert.push({
         batchId,
@@ -375,6 +397,7 @@ product_type: "0",
         value_premise_id,
         report_type,
 
+        // already formatted as yyyy-mm-dd strings
         valued_at,
         submitted_at,
         inspection_date,
@@ -387,13 +410,17 @@ product_type: "0",
         region,
         city,
 
-        report_total_value,
+        final_value: report_total_value,
         assets_total_value,
 
-        assets,
-        pdf_paths: pdfs,
+        // renamed field to match schema
+        asset_data: assets,
 
-        reportInfo_raw: report,
+        // store single PDF path as string
+        pdf_path: pdfs[0],
+
+        // optionally, if your schema has it:
+        // reportInfo_raw: report,
       });
     }
 

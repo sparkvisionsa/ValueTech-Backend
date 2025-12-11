@@ -138,4 +138,8 @@ MultiApproachReportSchema.pre("save", function (next) {
 module.exports = mongoose.model(
   "MultiApproachReport",
   MultiApproachReportSchema
+<<<<<<< HEAD
 );
+=======
+);
+>>>>>>> d7ef592 (midway)
