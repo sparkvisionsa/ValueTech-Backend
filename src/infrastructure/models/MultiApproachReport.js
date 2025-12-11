@@ -5,6 +5,7 @@ const AssetSchema = new mongoose.Schema(
     asset_id: { type: Number },
     asset_name: { type: String },
     asset_usage_id: { type: Number },
+    asset_type: { type: String, default: "0" },
 
     // Repeated high-level fields (copied from parent report)
     region: { type: String },
