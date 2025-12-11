@@ -11,7 +11,7 @@ router.post(
   },
   upload.fields([
     { name: "excel", maxCount: 1 },
-    { name: "pdfs", maxCount: 50 }
+    { name: "pdfs", maxCount: 5000 }
   ]),
   processUpload
 );
