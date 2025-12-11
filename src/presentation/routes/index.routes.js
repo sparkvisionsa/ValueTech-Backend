@@ -7,8 +7,8 @@ const updateRoutes = require('./update.routes');
 const companyRoutes = require('./company.routes');
 const uploadRoute = require("../routes/upload.route");
 const elrajhiUploadRoute = require("../routes/elrajhiUpload.route");
-const duplicateReportRoutes = require("./duplicateReport.routes");
-const multiApproachRoutes = require("./multiApproach.routes");
+const duplicateReportRoutes = require("../routes/duplicateReport.routes");
+const multiApproachRoutes = require("../routes/multiApproach.route");
 
 
 
