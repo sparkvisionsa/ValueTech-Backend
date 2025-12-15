@@ -45,6 +45,7 @@ const urgentSchema = new mongoose.Schema({
 
   // Submission tracking
   submit_state: { type: Number, default: 0 }, // 0 = incomplete/not checked, 1 = complete
+  report_status: { type: String, default: "INCOMPLETE" }, // INCOMPLETE | COMPLETE | SENT | CONFIRMED
   last_checked_at: { type: Date }
 }, { timestamps: true });
 const UrgentReport = mongoose.model('UrgentReport', urgentSchema);

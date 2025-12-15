@@ -446,6 +446,8 @@ exports.processElrajhiExcel = async (req, res) => {
         valuers,
 
         pdf_path,
+        submit_state: 0,
+        report_status: "INCOMPLETE",
       });
     }
 
@@ -561,7 +563,30 @@ exports.listElrajhiBatches = async (req, res) => {
             },
           },
           completedReports: {
-            $sum: { $cond: [{ $eq: ["$submit_state", 1] }, 1, 0] },
+            $sum: {
+              $cond: [
+                {
+                  $or: [
+                    { $eq: ["$submit_state", 1] },
+                    { $eq: ["$report_status", "COMPLETE"] },
+                    { $eq: ["$report_status", "SENT"] },
+                    { $eq: ["$report_status", "CONFIRMED"] },
+                  ],
+                },
+                1,
+                0,
+              ],
+            },
+          },
+          sentReports: {
+            $sum: {
+              $cond: [{ $eq: ["$report_status", "SENT"] }, 1, 0],
+            },
+          },
+          confirmedReports: {
+            $sum: {
+              $cond: [{ $eq: ["$report_status", "CONFIRMED"] }, 1, 0],
+            },
           },
           lastCreatedAt: { $max: "$createdAt" },
           excelName: { $first: "$source_excel_name" },
@@ -577,6 +602,8 @@ exports.listElrajhiBatches = async (req, res) => {
         totalReports: b.totalReports,
         withReportId: b.withReportId,
         completedReports: b.completedReports,
+        sentReports: b.sentReports || 0,
+        confirmedReports: b.confirmedReports || 0,
         excelName: b.excelName || "",
         lastCreatedAt: b.lastCreatedAt,
       })),
@@ -605,19 +632,32 @@ exports.getElrajhiBatchReports = async (req, res) => {
       .sort({ createdAt: 1 })
       .lean();
 
+    const normalizeStatus = (report) => {
+      const allowed = ["INCOMPLETE", "COMPLETE", "SENT", "CONFIRMED"];
+      const raw = (report.report_status || report.status || "").toUpperCase();
+      if (allowed.includes(raw)) return raw;
+      return report.submit_state === 1 ? "COMPLETE" : "INCOMPLETE";
+    };
+
     return res.json({
       status: "success",
       batchId,
-      reports: reports.map((r) => ({
-        id: r._id,
-        batch_id: r.batch_id,
-        report_id: r.report_id || "",
-        client_name: r.client_name || "",
-        asset_name: r.asset_name || "",
-        submit_state: typeof r.submit_state === "number" ? r.submit_state : 0,
-        pdf_path: r.pdf_path || "",
-        last_checked_at: r.last_checked_at,
-      })),
+      reports: reports.map((r) => {
+        const reportStatus = normalizeStatus(r);
+        return {
+          id: r._id,
+          batch_id: r.batch_id,
+          report_id: r.report_id || "",
+          client_name: r.client_name || "",
+          asset_name: r.asset_name || "",
+          submit_state: typeof r.submit_state === "number" ? r.submit_state : 0,
+          report_status: reportStatus,
+          reportStatus,
+          status: reportStatus,
+          pdf_path: r.pdf_path || "",
+          last_checked_at: r.last_checked_at,
+        };
+      }),
     });
   } catch (err) {
     console.error("Get Elrajhi batch reports error:", err);
