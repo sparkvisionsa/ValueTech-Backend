@@ -9,6 +9,7 @@ const {
   exportElrajhiBatch,
   listElrajhiBatches,
   getElrajhiBatchReports,
+  getReportById
 } = require("../controllers/elrajhiUpload.controller");
 
 // Require authentication so processElrajhiExcel receives req.user (phone, id, etc.)
@@ -39,6 +40,11 @@ router.get(
 router.get(
   "/batches/:batchId/reports",
   getElrajhiBatchReports
+);
+
+router.get(
+  "/reports/:reportId",
+  getReportById
 );
 
 module.exports = router;

@@ -647,9 +647,20 @@ exports.getElrajhiBatchReports = async (req, res) => {
         return {
           id: r._id,
           batch_id: r.batch_id,
+          title: r.title || "",
+          value_premise_id: r.value_premise_id || 0,
+          purpose_id: r.purpose_id || 0,
+          valued_at: r.valued_at || null,
+          submitted_at: r.submitted_at || null,
+          inspection_date: r.inspection_date || null,
+          assumptions: r.assumptions || 0,
+          special_assumptions: r.special_assumptions || 0,
           report_id: r.report_id || "",
           client_name: r.client_name || "",
           asset_name: r.asset_name || "",
+          value: r.final_value || 0,
+          telephone: r.telephone || "",
+          email: r.email || "",
           submit_state: typeof r.submit_state === "number" ? r.submit_state : 0,
           report_status: reportStatus,
           reportStatus,
@@ -664,6 +675,39 @@ exports.getElrajhiBatchReports = async (req, res) => {
     return res.status(500).json({
       status: "failed",
       error: err.message || "Failed to fetch batch reports",
+    });
+  }
+};
+
+exports.getReportById = async (req, res) => {
+  try {
+    const { reportId } = req.params;
+    if (!reportId) {
+      return res.status(400).json({
+        status: "failed",
+        error: "reportId is required",
+      });
+    }
+
+    const report = await UrgentReport.findOne({ report_id: reportId })
+      .lean();
+
+    if (!report) {
+      return res.status(404).json({
+        status: "failed",
+        error: "Report not found",
+      });
+    }
+
+    return res.json({
+      status: "success",
+      report,
+    });
+  } catch (err) {
+    console.error("Get report by ID error:", err);
+    return res.status(500).json({
+      status: "failed",
+      error: err.message || "Failed to fetch report",
     });
   }
 };
