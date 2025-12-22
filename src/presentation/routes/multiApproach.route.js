@@ -4,6 +4,7 @@ const router = express.Router();
 const upload = require("../../utils/upload.multer");
 const {
   processMultiApproachBatch,
+  createManualMultiApproachReport,
 } = require("../controllers/multiApproach.controller");
 
 // POST /api/reports/multi-approach/batch
@@ -19,5 +20,8 @@ router.post(
   ]),
   processMultiApproachBatch
 );
+
+// Manual entry flow
+router.post("/manual", createManualMultiApproachReport);
 
 module.exports = router;

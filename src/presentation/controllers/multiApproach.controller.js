@@ -118,6 +118,14 @@ function formatDateYyyyMmDd(value) {
   return `${yyyy}-${mm}-${dd}`;
 }
 
+function toSafeBasename(value, fallback) {
+  const normalized = normalizeKey(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return normalized || fallback || `manual-${Date.now()}`;
+}
+
 
 // Try to read total report value from Report Info row
 function getReportTotalValue(reportRow) {
@@ -133,6 +141,49 @@ function getReportTotalValue(reportRow) {
 
   const num = Number(raw);
   return Number.isNaN(num) ? 0 : num;
+}
+
+function toBooleanFlag(value) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value !== 0;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    return ["1", "true", "yes", "on"].includes(normalized);
+  }
+  return false;
+}
+
+function cleanStringArray(list) {
+  if (!Array.isArray(list)) return [];
+  return list
+    .map((entry) => (entry == null ? "" : entry.toString().trim()))
+    .filter(Boolean);
+}
+
+function normalizeValuers(list) {
+  if (!Array.isArray(list)) return [];
+  return list
+    .map((valuer) => {
+      if (!valuer) return null;
+      const name =
+        valuer.valuer_name ||
+        valuer.valuerName ||
+        valuer.name ||
+        "";
+      if (!name) return null;
+      const pctRaw =
+        valuer.contribution_percentage ??
+        valuer.percentage ??
+        valuer.contribution ??
+        0;
+      const contribution_percentage = Number(pctRaw);
+      if (!Number.isFinite(contribution_percentage)) return null;
+      return {
+        valuer_name: name.toString().trim(),
+        contribution_percentage,
+      };
+    })
+    .filter((valuer) => valuer && valuer.valuer_name);
 }
 
 // ------------ main controller ------------
@@ -506,6 +557,219 @@ exports.processMultiApproachBatch = async (req, res) => {
     });
   } catch (err) {
     console.error("Multi-approach batch upload error:", err);
+    const statusCode = err?.statusCode && Number.isInteger(err.statusCode) ? err.statusCode : 500;
+    return res.status(statusCode).json({
+      status: "failed",
+      error: err?.message || "Unexpected error",
+    });
+  }
+};
+
+exports.createManualMultiApproachReport = async (req, res) => {
+  try {
+    const assetsPayload = Array.isArray(req.body?.assets) ? req.body.assets : [];
+    const reportInfo = req.body?.reportInfo || {};
+
+    if (!assetsPayload.length) {
+      throw badRequest("At least one asset row is required.");
+    }
+
+    const normalizedAssets = assetsPayload
+      .map((row, index) => {
+        if (!row) return null;
+
+        const rawName =
+          row.asset_name ||
+          row.assetName ||
+          row.name ||
+          "";
+        const asset_name = rawName.toString().trim();
+        if (!asset_name) {
+          throw badRequest(`Row ${index + 1}: asset_name is required.`);
+        }
+
+        const usageRaw =
+          row.asset_usage_id ||
+          row.assetUsageId ||
+          row.asset_usage ||
+          row.assetUsage;
+        const asset_usage_id = Number(usageRaw);
+        if (!Number.isInteger(asset_usage_id)) {
+          throw badRequest(`Row ${index + 1}: asset_usage_id must be an integer.`);
+        }
+
+        const finalValueRaw =
+          row.final_value ||
+          row.value;
+        const final_value = Number(finalValueRaw);
+        if (!Number.isInteger(final_value) || final_value < 0) {
+          throw badRequest(`Row ${index + 1}: final_value must be a non-negative integer.`);
+        }
+
+        const source =
+          typeof row.source_sheet === "string" &&
+            row.source_sheet.toLowerCase() === "cost"
+            ? "cost"
+            : "market";
+
+        const assetDoc = {
+          asset_id: row.asset_id || row.id || index + 1,
+          asset_name,
+          asset_usage_id,
+          source_sheet: source,
+          final_value,
+          production_capacity: "0",
+          production_capacity_measuring_unit: "0",
+          product_type: "0",
+        };
+
+        if (row.owner_name || row.ownerName) {
+          assetDoc.owner_name = (row.owner_name || row.ownerName || "").toString().trim();
+        }
+        if (row.region) {
+          assetDoc.region = row.region.toString().trim();
+        }
+        if (row.city) {
+          assetDoc.city = row.city.toString().trim();
+        }
+        if (row.inspection_date || row.inspectionDate) {
+          assetDoc.inspection_date = formatDateYyyyMmDd(
+            row.inspection_date || row.inspectionDate
+          );
+        }
+
+        if (source === "cost") {
+          assetDoc.cost_approach = "1";
+          assetDoc.cost_approach_value = final_value.toString();
+        } else {
+          assetDoc.market_approach = "1";
+          assetDoc.market_approach_value = final_value.toString();
+        }
+
+        return assetDoc;
+      })
+      .filter(Boolean);
+
+    if (!normalizedAssets.length) {
+      throw badRequest("No valid rows to import.");
+    }
+
+    const assets_total_value = normalizedAssets.reduce(
+      (sum, asset) => sum + asset.final_value,
+      0
+    );
+
+    const providedFinal = reportInfo.final_value ?? reportInfo.finalValue ?? reportInfo.value;
+    const final_value =
+      providedFinal === undefined || providedFinal === null || providedFinal === ""
+        ? assets_total_value
+        : Number(providedFinal);
+
+    if (!Number.isInteger(final_value)) {
+      throw badRequest("Report final_value must be an integer.");
+    }
+
+    if (Math.abs(final_value - assets_total_value) > 0.01) {
+      throw badRequest(
+        "Report final_value must match the sum of asset final_value entries."
+      );
+    }
+
+    const valuation_currency =
+      reportInfo.valuation_currency || reportInfo.currency_id || "to set";
+
+    const report_users = cleanStringArray(reportInfo.report_users || reportInfo.reportUsers);
+    const has_other_users =
+      reportInfo.has_other_users !== undefined
+        ? toBooleanFlag(reportInfo.has_other_users)
+        : report_users.length > 0;
+
+    const valuers = normalizeValuers(reportInfo.valuers);
+    if (valuers.length) {
+      const totalPct = valuers.reduce(
+        (sum, v) => sum + Number(v.contribution_percentage || 0),
+        0
+      );
+      const rounded = Math.round(totalPct);
+      if (rounded !== 100) {
+        throw badRequest(
+          `Valuers contribution must sum to 100%. Currently ${totalPct}%.`
+        );
+      }
+    }
+
+    const timestamp = Date.now();
+    const manualTitle = reportInfo.title || "Manual Report";
+    const rawExcelName =
+      reportInfo.excel_name ||
+      reportInfo.excelName ||
+      `${manualTitle || "manual-report"}-${timestamp}`;
+    const ext = path.extname(rawExcelName).toLowerCase();
+    const excel_name =
+      ext === ".xlsx" || ext === ".xls"
+        ? rawExcelName
+        : `${rawExcelName}.xlsx`;
+    const excel_basename = toSafeBasename(
+      reportInfo.excel_basename || reportInfo.excelBasename || rawExcelName,
+      `manual-${timestamp}`
+    );
+
+    const batchId =
+      (reportInfo.batchId || reportInfo.batch_id || "")
+        .toString()
+        .trim() || `MAN-${timestamp}`;
+
+    const region = reportInfo.region || "";
+    const city = reportInfo.city || "";
+    const owner_name = reportInfo.owner_name || reportInfo.client_name || "";
+
+    const doc = {
+      batchId,
+      excel_name,
+      excel_basename,
+      title: manualTitle,
+      client_name: reportInfo.client_name || "",
+      owner_name,
+      purpose_id: reportInfo.purpose_id || null,
+      value_premise_id: reportInfo.value_premise_id || null,
+      report_type: reportInfo.report_type || "",
+      valued_at: formatDateYyyyMmDd(reportInfo.valued_at),
+      submitted_at: formatDateYyyyMmDd(reportInfo.submitted_at),
+      inspection_date: formatDateYyyyMmDd(reportInfo.inspection_date),
+      assumptions: reportInfo.assumptions || "",
+      special_assumptions: reportInfo.special_assumptions || "",
+      telephone: reportInfo.telephone || "",
+      email: reportInfo.email || "",
+      region,
+      city,
+      valuation_currency,
+      has_other_users,
+      report_users,
+      valuers,
+      value: final_value,
+      final_value,
+      assets_total_value,
+      pdf_path: reportInfo.pdf_path || "",
+      asset_data: normalizedAssets.map((asset) => ({
+        ...asset,
+        region: asset.region || region,
+        city: asset.city || city,
+        owner_name: asset.owner_name || owner_name,
+        inspection_date:
+          asset.inspection_date || formatDateYyyyMmDd(reportInfo.inspection_date),
+      })),
+    };
+
+    const created = await MultiApproachReport.create(doc);
+
+    return res.json({
+      status: "success",
+      batchId,
+      created: 1,
+      reports: [created],
+    });
+  } catch (err) {
+    console.error("Manual multi-approach creation failed:", err);
     const statusCode = err?.statusCode && Number.isInteger(err.statusCode) ? err.statusCode : 500;
     return res.status(statusCode).json({
       status: "failed",

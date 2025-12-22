@@ -1,5 +1,13 @@
 const mongoose = require("mongoose");
 
+const ValuerSchema = new mongoose.Schema(
+  {
+    valuer_name: { type: String },
+    contribution_percentage: { type: Number },
+  },
+  { _id: false }
+);
+
 const AssetSchema = new mongoose.Schema(
   {
     asset_id: { type: Number },
@@ -76,7 +84,19 @@ const MultiApproachReportSchema = new mongoose.Schema(
     region: { type: String },
     city: { type: String },
 
+    valuation_currency: { type: String },
+    has_other_users: { type: Boolean, default: false },
+    report_users: {
+      type: [String],
+      default: [],
+    },
+    valuers: {
+      type: [ValuerSchema],
+      default: [],
+    },
+
     // Total value from Report Info
+    value: { type: Number },
     final_value: { type: Number, required: true },
 
     // Sum of final_value from all assets (market + cost)
@@ -112,7 +132,7 @@ function toYyyyMmDd(value) {
   return value;
 }
 
-MultiApproachReportSchema.pre("save", function (next) {
+MultiApproachReportSchema.pre("save", function () {
   const doc = this;
 
   // Normalize top-level dates to yyyy-mm-dd strings
@@ -132,8 +152,6 @@ MultiApproachReportSchema.pre("save", function (next) {
         toYyyyMmDd(doc.inspection_date || asset.inspection_date);
     });
   }
-
-  next();
 });
 
 module.exports = mongoose.model(
