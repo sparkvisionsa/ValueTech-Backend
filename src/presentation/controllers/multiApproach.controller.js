@@ -452,7 +452,7 @@ exports.processMultiApproachBatch = async (req, res) => {
         }
 
         // 6) Must be non-negative
-        if (final_value_num < 0) {
+        if (final_value_num <= 0) {
           throw badRequest(
             `Asset "${row.asset_name}" has negative final_value "${final_value_raw}". Not allowed.`
           );
