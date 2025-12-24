@@ -9,6 +9,11 @@ const userSchema = new mongoose.Schema({
     companyName: { type: String },
     headName: { type: String },
     displayName: { type: String },
+    taqeem: {
+        username: { type: String, index: true },
+        password: { type: String },
+        bootstrap_used: { type: Boolean, default: false },
+    },
     permissions: { type: [String], default: [] }
 }, { timestamps: true });
 

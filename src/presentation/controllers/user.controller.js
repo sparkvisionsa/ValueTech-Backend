@@ -99,53 +99,93 @@ exports.register = async (req, res) => {
 
 
 exports.login = async (req, res) => {
-  try {
-    const { phone, password } = req.body;
-    if (!phone || !password) return res.status(400).json({ message: 'Phone and password are required.' });
+    try {
+        const { phone, password } = req.body;
+        if (!phone || !password) return res.status(400).json({ message: 'Phone and password are required.' });
 
-    const user = await User.findOne({ phone });
-    if (!user) return res.status(404).json({ message: 'User not found.' });
+        const user = await User.findOne({ phone });
+        if (!user) return res.status(404).json({ message: 'User not found.' });
 
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) return res.status(401).json({ message: 'Invalid credentials.' });
+        const isMatch = await bcrypt.compare(password, user.password);
+        if (!isMatch) return res.status(401).json({ message: 'Invalid credentials.' });
 
-    const payload = {
-        id: user._id.toString(),
-        phone: user.phone,
-        type: user.type,
-        role: user.role,
-        company: user.company || null,
-        permissions: user.permissions || []
-    };
-    const accessToken = generateAccessToken(payload);
-    const refreshToken = generateRefreshToken(payload);
+        const payload = {
+            id: user._id.toString(),
+            phone: user.phone,
+            type: user.type,
+            role: user.role,
+            company: user.company || null,
+            permissions: user.permissions || []
+        };
+        const accessToken = generateAccessToken(payload);
+        const refreshToken = generateRefreshToken(payload);
 
-    // Set HttpOnly cookie (also okay — main process can read Set-Cookie header or use returned token)
-    res.cookie('refreshToken', refreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'Strict',
-      maxAge: 7 * 24 * 60 * 60 * 1000
-    });
+        // Set HttpOnly cookie (also okay — main process can read Set-Cookie header or use returned token)
+        res.cookie('refreshToken', refreshToken, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'Strict',
+            maxAge: 7 * 24 * 60 * 60 * 1000
+        });
 
-    return res.status(200).json({
-      message: 'Login successful.',
-      token: accessToken,
-      refreshToken, // <-- optional: helpful for main process to set cookie
-      user: {
-        _id: user._id,
-        phone: user.phone,
-        type: user.type,
-        role: user.role,
-        company: user.company,
-        companyName: user.companyName,
-        headName: user.headName,
-        permissions: user.permissions,
-        createdAt: user.createdAt
-      }
-    });
-  } catch (err) {
-    console.error(err);
-    return res.status(500).json({ message: 'Server error', error: err.message });
-  }
+        return res.status(200).json({
+            message: 'Login successful.',
+            token: accessToken,
+            refreshToken, // <-- optional: helpful for main process to set cookie
+            user: {
+                _id: user._id,
+                phone: user.phone,
+                type: user.type,
+                role: user.role,
+                company: user.company,
+                companyName: user.companyName,
+                headName: user.headName,
+                permissions: user.permissions,
+                createdAt: user.createdAt
+            }
+        });
+    } catch (err) {
+        console.error(err);
+        return res.status(500).json({ message: 'Server error', error: err.message });
+    }
 };
+
+
+exports.taqeemBootstrap = async (req, res) => {
+    const { username, password } = req.body;
+
+    let user = await User.findOne({ "taqeem.username": username });
+
+    // CASE 1: first time ever
+    if (!user) {
+        user = await User.create({
+            taqeem: {
+                username,
+                password,
+                bootstrap_used: false,
+            }
+        });
+
+        return res.json({
+            status: "BOOTSTRAP_GRANTED",
+            userId: user._id,
+        });
+    }
+
+    // CASE 2: username exists but password mismatch
+    if (user.taqeem.password !== password) {
+        return res.status(401).json({ message: "Invalid credentials" });
+    }
+
+    // CASE 3: user already exists → login required
+    if (user.taqeem.bootstrap_used) {
+        return res.status(403).json({
+            status: "LOGIN_REQUIRED"
+        });
+    }
+
+    return res.json({
+        status: "BOOTSTRAP_GRANTED",
+        userId: user._id,
+    });
+}
