@@ -17,19 +17,28 @@ function normalizeKey(str) {
 }
 
 function getPlaceholderPdfPath() {
-  const placeholderPath = path.resolve(
+  const preferredPath = path.resolve(
+    __dirname,
+    "../../../uploads/static/dummy_placeholder.pdf"
+  );
+
+  if (fs.existsSync(preferredPath)) {
+    return preferredPath;
+  }
+
+  const fallbackPath = path.resolve(
     "uploads",
     "static",
     "dummy_placeholder.pdf"
   );
 
-  if (!fs.existsSync(placeholderPath)) {
+  if (!fs.existsSync(fallbackPath)) {
     throw new Error(
       "Placeholder PDF missing at uploads/static/dummy_placeholder.pdf"
     );
   }
 
-  return placeholderPath;
+  return fallbackPath;
 }
 
 
@@ -134,18 +143,31 @@ function detectValuerColumnsOrThrow(exampleRow) {
   nameKeys.sort();
   pctKeys.sort();
 
-  const hasBaseId = idKeys.some((k) => k.split("_")[0] === "valuerId");
-  const hasBaseName = nameKeys.some((k) => k.split("_")[0] === "valuerName");
-  const hasBasePct = pctKeys.some((k) => k.split("_")[0] === "percentage");
+  const hasBaseName = nameKeys.length > 0;
+  const hasBasePct = pctKeys.length > 0;
 
-  if (!hasBaseId || !hasBaseName || !hasBasePct) {
+  const hasAnyValuerCols = idKeys.length > 0 || nameKeys.length > 0 || pctKeys.length > 0;
+
+  if (!hasAnyValuerCols) {
+    return {
+      idKeys: [],
+      nameKeys: [],
+      pctKeys: [],
+      allKeys: [],
+      hasValuerColumns: false,
+    };
+  }
+
+  if (!hasBaseName || !hasBasePct) {
     throw new Error(
-      "Market sheet must contain headers 'valuerId', 'valuerName', and 'percentage'. " +
-      "If there are multiple valuers, Excel will create valuerId_1, valuerId_2, etc."
+      "Market sheet must contain headers 'valuerName' and 'percentage'. " +
+      "If there are multiple valuers, Excel will create valuerName_1, percentage_1, etc."
     );
   }
 
-  return { idKeys, nameKeys, pctKeys };
+  const allKeys = Array.from(new Set([...idKeys, ...nameKeys, ...pctKeys]));
+
+  return { idKeys, nameKeys, pctKeys, allKeys, hasValuerColumns: true };
 }
 
 /**
@@ -365,31 +387,33 @@ exports.processElrajhiExcel = async (req, res) => {
         assetRow.asset_usage ||
         "";
 
-      // 🔹 Build valuers[] for this asset
-      const valuers = buildValuersForAsset(assetRow, valuerCols);
-
-      if (!valuers.length) {
-        return res.status(400).json({
-          status: "failed",
-          error: `Asset "${assetName}" (row ${index + 1}) has no valuers. At least one valuer is required.`,
+      const hasValuerData =
+        valuerCols.hasValuerColumns &&
+        valuerCols.allKeys.some((key) => {
+          const value = assetRow[key];
+          return value !== null && value !== undefined && String(value).trim() !== "";
         });
+
+      // Build valuers[] for this asset only when valuer data exists on the row.
+      const valuers = hasValuerData ? buildValuersForAsset(assetRow, valuerCols) : [];
+
+      if (hasValuerData) {
+        const totalPct = valuers.reduce(
+          (sum, v) => sum + (Number(v.percentage) || 0),
+          0
+        );
+
+        const roundedTotal = Math.round(totalPct * 100) / 100;
+
+        // allow tiny floating error, but must be 100
+        if (Math.abs(roundedTotal - 100) > 0.001) {
+          return res.status(400).json({
+            status: "failed",
+            error: `Asset "${assetName}" (row ${index + 1}) has total valuers percentage = ${roundedTotal}%. It must be exactly 100%.`,
+          });
+        }
       }
 
-      const totalPct = valuers.reduce(
-        (sum, v) => sum + (Number(v.percentage) || 0),
-        0
-      );
-
-      const roundedTotal = Math.round(totalPct * 100) / 100;
-
-      // allow tiny floating error, but must be 100
-      if (Math.abs(roundedTotal - 100) > 0.001) {
-        return res.status(400).json({
-          status: "failed",
-          error: `Asset "${assetName}" (row ${index + 1
-            }) has total valuers percentage = ${roundedTotal}%. It must be exactly 100%.`,
-        });
-      }
 
       // ---- PDF resolution ----
       const assetKey = assetName; // already normalized
