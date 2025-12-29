@@ -6,7 +6,7 @@ const { generateAccessToken, generateRefreshToken } = require('../../application
 
 exports.register = async (req, res) => {
     try {
-        const { phone, password, type, companyName, companyHead } = req.body;
+        const { phone, password, type, companyName, companyHead, taqeemUsername } = req.body;
 
         if (!phone || !password) {
             return res.status(400).json({ message: 'Phone and password are required.' });
@@ -16,46 +16,107 @@ exports.register = async (req, res) => {
             return res.status(400).json({ message: 'Company name and head are required for company accounts.' });
         }
 
-        const existingUser = await User.findOne({ phone });
-        if (existingUser) {
-            return res.status(409).json({ message: 'User already exists.' });
+        // Check if user with this phone already exists
+        const existingUserByPhone = await User.findOne({ phone });
+        if (existingUserByPhone) {
+            return res.status(409).json({ message: 'User with this phone number already exists.' });
+        }
+
+        // If taqeemUsername is provided, look for existing user with that username
+        let existingUserByTaqeem = null;
+        if (taqeemUsername && taqeemUsername.trim() !== '') {
+            existingUserByTaqeem = await User.findOne({ 'taqeem.username': taqeemUsername.trim() });
         }
 
         const hashedPassword = await bcrypt.hash(password, 10);
-
         let companyDoc = null;
         let user;
 
-        if (type === 'company') {
-            // Create the head user first so we can reference it from the company doc
-            user = new User({
-                phone,
-                password: hashedPassword,
-                type: 'company',
-                role: 'company-head',
-                headName: companyHead,
-                companyName
-            });
-            await user.save();
+        // If user exists with taqeem username, update that user instead of creating new
+        if (existingUserByTaqeem) {
+            user = existingUserByTaqeem;
 
-            companyDoc = new Company({
-                name: companyName,
-                headName: companyHead,
-                phone,
-                headUser: user._id
-            });
-            await companyDoc.save();
+            const alreadyRegistered = user.phone
 
-            user.company = companyDoc._id;
+            if (alreadyRegistered) {
+                return res.status(409).json({
+                    message: 'User with this Taqeem account already exists.'
+                });
+            }
+
+            // Update user fields
+            user.phone = phone;
+            user.password = hashedPassword;
+            user.type = type;
+
+            // Update role based on type
+            if (type === 'company') {
+                user.role = 'company-head';
+                user.headName = companyHead;
+                user.companyName = companyName;
+
+                // Create company if user is registering as company
+                companyDoc = new Company({
+                    name: companyName,
+                    headName: companyHead,
+                    phone,
+                    headUser: user._id
+                });
+                await companyDoc.save();
+
+                user.company = companyDoc._id;
+            } else {
+                user.role = 'individual';
+                // Clear company-related fields if switching from company to individual
+                user.company = null;
+                user.companyName = undefined;
+                user.headName = undefined;
+            }
+
             await user.save();
         } else {
-            user = new User({
-                phone,
-                password: hashedPassword,
-                type: 'individual',
-                role: 'individual'
-            });
-            await user.save();
+            // Create new user (original logic)
+            if (type === 'company') {
+                // Create the head user first so we can reference it from the company doc
+                user = new User({
+                    phone,
+                    password: hashedPassword,
+                    type: 'company',
+                    role: 'company-head',
+                    headName: companyHead,
+                    companyName
+                });
+                await user.save();
+
+                companyDoc = new Company({
+                    name: companyName,
+                    headName: companyHead,
+                    phone,
+                    headUser: user._id
+                });
+                await companyDoc.save();
+
+                user.company = companyDoc._id;
+                await user.save();
+            } else {
+                user = new User({
+                    phone,
+                    password: hashedPassword,
+                    type: 'individual',
+                    role: 'individual'
+                });
+                await user.save();
+            }
+
+            // If taqeemUsername was provided but no user found, you might want to create taqeem field
+            // or handle it differently based on your requirements
+            // For now, we'll just store it if provided
+            if (taqeemUsername && taqeemUsername.trim() !== '') {
+                user.taqeem = user.taqeem || {};
+                user.taqeem.username = taqeemUsername.trim();
+                // Note: taqeem.password is required in schema, you might need to handle this
+                await user.save();
+            }
         }
 
         const payload = {
@@ -77,7 +138,7 @@ exports.register = async (req, res) => {
         });
 
         res.status(201).json({
-            message: 'User registered successfully.',
+            message: existingUserByTaqeem ? 'User account linked and updated successfully.' : 'User registered successfully.',
             token: accessToken,
             refreshToken,
             user: {
@@ -88,8 +149,10 @@ exports.register = async (req, res) => {
                 company: user.company,
                 companyName: user.companyName,
                 headName: user.headName,
+                taqeem: user.taqeem,
                 permissions: user.permissions,
-                createdAt: user.createdAt
+                createdAt: user.createdAt,
+                updatedAt: user.updatedAt
             }
         });
     } catch (err) {
@@ -153,13 +216,15 @@ exports.login = async (req, res) => {
 
 exports.taqeemBootstrap = async (req, res) => {
     try {
+
+        const { username, password } = req.body;
+
         if (req.userId) {
             return res.json({
                 status: "NORMAL_ACCOUNT",
-                userId: user._id
+                userId: req.userId
             });
         }
-        const { username, password } = req.body;
 
         let user = await User.findOne({ "taqeem.username": username });
 
