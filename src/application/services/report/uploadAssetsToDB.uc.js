@@ -66,6 +66,12 @@ const createReportUC = async (report_id, reportData, userContext = {}) => {
 
     } catch (error) {
         console.error('Error creating report:', error);
+
+        // ✅ Keep mongoose validation errors intact so controller can return field messages to UI
+        if (error && error.name === "ValidationError") {
+            throw error;
+        }
+
         throw new Error(`Failed to create report: ${error.message}`);
     }
 };

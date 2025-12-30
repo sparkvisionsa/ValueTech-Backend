@@ -41,7 +41,7 @@ const reportSchema = new mongoose.Schema({
         id: { type: String },
         serial_no: { type: String },
         asset_type: { type: String, default: "0" },
-        asset_name: { type: String },
+        asset_name: { type: String, required: true, message: "Asset Name is required" },
         inspection_date: { type: String },
         pg_no: { type: String },
 
@@ -49,8 +49,27 @@ const reportSchema = new mongoose.Schema({
         owner_name: { type: String },
         submitState: { type: Number, default: 0 },
         year_made: { type: String },
-        final_value: { type: String },
-        asset_usage_id: { type: String },
+        final_value: {
+        type: String,
+     required: true,
+        trim: true,
+        validate: {
+          validator: function (v) {
+            if (typeof v !== "string") return false;
+      // must contain only digits (no decimals, no signs)
+      if (!/^\d+$/.test(v)) return false;
+
+      const num = Number(v);
+
+      // non-zero, non-negative
+      return Number.isInteger(num) && num > 0;
+    },
+    message:
+      "Final Value must be a Positive Whole Number (non-zero, non-negative, no decimals)",
+         },
+        },
+
+        asset_usage_id: { type: String,required: true, message: "Asset Usage ID is required" },
         value_base: { type: String },
         inspection_date: { type: String },
         production_capacity: { type: String, default: "0" },
