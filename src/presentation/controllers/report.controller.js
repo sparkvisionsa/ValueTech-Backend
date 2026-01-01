@@ -3,6 +3,7 @@ const { getAllReportsUC } = require('../../application/services/report/getAllrep
 const { reportExistenceCheckUC } = require('../../application/services/report/reportExistenceCheck.uc');
 const { addCommonFields } = require('../../application/services/report/addCommonFields.uc');
 const { checkMissingPagesUC } = require('../../application/services/report/checkMissingPages.uc');
+const { getReportsByUserIdUC } = require('../../application/services/report/getReportsByUserId.uc');
 
 const reportController = {
     async createReport(req, res) {
@@ -198,6 +199,37 @@ const reportController = {
         }
     },
 
+    async getReportsByUserId(req, res) {
+        try {
+            const userId = req.userId;
+            console.log("userId", userId);
+
+            const { success, message, data, pagination } =
+                await getReportsByUserIdUC({
+                    userId,
+                    page: req.query.page,
+                    limit: req.query.limit,
+                    sortBy: req.query.sortBy,
+                    sortOrder: req.query.sortOrder,
+                    ...req.query
+                });
+
+            if (success) {
+                return res.status(200).json({ success, message, data, pagination });
+            }
+
+            return res.status(500).json({ success, message, data });
+
+        } catch (error) {
+            console.error('Error fetching reports by user id:', error);
+            return res.status(500).json({
+                success: false,
+                message: error.message
+            });
+        }
+    },
+
+
     async checkMissingPages(req, res) {
         try {
             const { reportId } = req.params;
@@ -228,13 +260,9 @@ const reportController = {
     },
     async createReportWithCommonFields(req, res) {
         try {
-            const {
-                reportId,
-                reportData,
-                commonFields = {}
-            } = req.body;
+            const { reportId, reportData, commonFields = {} } = req.body;
+            const userId = req.userId;
 
-            // Validate required fields
             if (!reportId || !reportId.trim()) {
                 return res.status(400).json({
                     success: false,
@@ -242,49 +270,23 @@ const reportController = {
                 });
             }
 
-            if (!reportData || !Array.isArray(reportData) || reportData.length === 0) {
+            if (!Array.isArray(reportData) || reportData.length === 0) {
                 return res.status(400).json({
                     success: false,
                     message: 'Report data is required and must be a non-empty array'
                 });
             }
 
-            // Extract common fields
-            const {
-                region,
-                city,
-                inspectionDate,
-                ownerName
-            } = commonFields;
+            const { region, city, inspectionDate, ownerName } = commonFields;
 
-            console.log(`[createReportWithCommonFields] Creating report: ${reportId}`);
-            console.log(`[createReportWithCommonFields] Records: ${reportData.length}`);
-            console.log(`[createReportWithCommonFields] Common fields:`, {
-                region: region || 'Not set',
-                city: city || 'Not set',
-                inspectionDate: inspectionDate || 'Not set',
-                ownerName: ownerName || 'Not set'
-            });
-
-            // Apply common fields to all report data entries
             const enhancedReportData = reportData.map(entry => {
                 const enhancedEntry = { ...entry };
 
-                // Only apply common fields if they're provided
-                if (inspectionDate) {
-                    enhancedEntry.inspection_date = inspectionDate;
-                }
-                if (region) {
-                    enhancedEntry.region = region;
-                }
-                if (city) {
-                    enhancedEntry.city = city;
-                }
-                if (ownerName) {
-                    enhancedEntry.owner_name = ownerName;
-                }
+                if (inspectionDate) enhancedEntry.inspection_date = inspectionDate;
+                if (region) enhancedEntry.region = region;
+                if (city) enhancedEntry.city = city;
+                if (ownerName) enhancedEntry.owner_name = ownerName;
 
-                // Ensure all required fields have default values
                 enhancedEntry.asset_type = enhancedEntry.asset_type || '0';
                 enhancedEntry.production_capacity = enhancedEntry.production_capacity || '0';
                 enhancedEntry.production_capacity_measuring_unit = enhancedEntry.production_capacity_measuring_unit || '0';
@@ -292,7 +294,6 @@ const reportController = {
                 enhancedEntry.country = enhancedEntry.country || 'المملكة العربية السعودية';
                 enhancedEntry.submitState = enhancedEntry.submitState || 0;
 
-                // Clean up any undefined/null values
                 Object.keys(enhancedEntry).forEach(key => {
                     if (enhancedEntry[key] === undefined || enhancedEntry[key] === null) {
                         delete enhancedEntry[key];
@@ -302,47 +303,91 @@ const reportController = {
                 return enhancedEntry;
             });
 
-            console.log(`[createReportWithCommonFields] Enhanced ${enhancedReportData.length} records with common fields`);
-
-            // Call the existing use case with enhanced data
             const { success, message, data } = await createReportUC(
                 reportId.trim(),
                 enhancedReportData,
-                req.user
+                userId   // ONLY user id
             );
 
             if (success) {
-                console.log(`[createReportWithCommonFields] Report created successfully: ${reportId}`);
-                res.status(200).json({
+                return res.status(200).json({
                     success,
-                    message: message || `Report '${reportId}' created successfully with ${enhancedReportData.length} assets`,
+                    message,
                     data: {
                         ...data,
-                        commonFieldsApplied: {
-                            region: region || null,
-                            city: city || null,
-                            inspectionDate: inspectionDate || null,
-                            ownerName: ownerName || null
-                        },
                         recordCount: enhancedReportData.length
                     }
                 });
-            } else {
-                console.error(`[createReportWithCommonFields] Failed to create report: ${reportId}`, message);
-                res.status(500).json({
-                    success,
-                    message: message || `Failed to create report '${reportId}'`,
-                    data
-                });
             }
+
+            return res.status(500).json({
+                success,
+                message: message || `Failed to create report '${reportId}'`,
+                data
+            });
+
         } catch (error) {
             console.error('[createReportWithCommonFields] Error:', error);
-            res.status(500).json({
+            return res.status(500).json({
                 success: false,
                 message: `Internal server error: ${error.message}`
             });
         }
+    },
+    async updateAsset(req, res) {
+        try {
+            const { reportId, assetUid } = req.params;
+            const update = req.body;
+
+            if (!reportId || !assetUid) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Report ID and asset UID are required"
+                });
+            }
+
+            // Do not allow identity changes
+            delete update.internal_uid;
+            delete update._id;
+
+            const setPayload = Object.entries(update).reduce((acc, [key, value]) => {
+                acc[`asset_data.$.${key}`] = value;
+                return acc;
+            }, {});
+
+            // Force submitState -> 0
+            setPayload["asset_data.$.submitState"] = 0;
+
+            const result = await Report.updateOne(
+                {
+                    _id: reportId,
+                    "asset_data.internal_uid": assetUid
+                },
+                { $set: setPayload }
+            );
+
+            if (result.matchedCount === 0) {
+                return res.status(404).json({
+                    success: false,
+                    message: "Asset not found on this report"
+                });
+            }
+
+            return res.status(200).json({
+                success: true,
+                message: "Asset updated successfully and submit state reset"
+            });
+
+        } catch (error) {
+            console.error("[updateAsset] Error:", error);
+            return res.status(500).json({
+                success: false,
+                message: error.message
+            });
+        }
     }
+
+
 };
 
 module.exports = reportController;

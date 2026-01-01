@@ -1,14 +1,23 @@
 const Report = require('../../../infrastructure/models/report');
 
-const getAllReportsUC = async ({ page = 1, limit = 10, sortBy = 'createdAt', sortOrder = 'desc', ...filters }) => {
+const getReportsByUserIdUC = async ({
+    userId,
+    page = 1,
+    limit = 10,
+    sortBy = 'createdAt',
+    sortOrder = 'desc',
+    ...filters
+}) => {
     try {
-        // Calculate skip value for pagination
+        if (!userId) {
+            throw new Error('userId is required');
+        }
+
         const skip = (page - 1) * limit;
 
-        // Build query with filters
-        let query = {};
+        // Base query scoping by userId
+        let query = { user_id: userId };
 
-        // Apply filters if provided
         if (filters.status) {
             query.status = filters.status;
         }
@@ -24,55 +33,57 @@ const getAllReportsUC = async ({ page = 1, limit = 10, sortBy = 'createdAt', sor
         if (filters.startDate && filters.endDate) {
             query.createdAt = {
                 $gte: new Date(filters.startDate),
-                $lte: new Date(filters.endDate)
+                $lte: new Date(filters.endDate),
             };
         }
 
-        // Handle search filter if provided
         if (filters.search) {
             query.$or = [
                 { title: { $regex: filters.search, $options: 'i' } },
-                { description: { $regex: filters.search, $options: 'i' } }
+                { description: { $regex: filters.search, $options: 'i' } },
             ];
         }
 
-        // Build sort object
         const sortObject = {};
         sortObject[sortBy] = sortOrder === 'asc' ? 1 : -1;
 
-        console.log('[getAllReportsUC] Query:', JSON.stringify(query));
-        console.log('[getAllReportsUC] Skip:', skip, 'Limit:', limit);
-        console.log('[getAllReportsUC] Sort:', sortObject);
+        console.log('[getReportsByUserIdUC] Query:', JSON.stringify(query));
+        console.log('[getReportsByUserIdUC] Skip:', skip, 'Limit:', limit);
+        console.log('[getReportsByUserIdUC] Sort:', sortObject);
 
-        // Execute query with pagination
         const reports = await Report.find(query)
             .sort(sortObject)
             .skip(skip)
             .limit(limit);
 
-        // Get total count for pagination metadata
         const totalReports = await Report.countDocuments(query);
         const totalPages = Math.ceil(totalReports / limit);
 
-        console.log('[getAllReportsUC] Found', reports.length, 'reports out of', totalReports, 'total');
+        console.log(
+            '[getReportsByUserIdUC] Found',
+            reports.length,
+            'reports out of',
+            totalReports,
+            'total'
+        );
 
         return {
             success: true,
-            message: 'Reports fetched successfully',
+            message: 'User reports fetched successfully',
             data: reports,
             pagination: {
                 currentPage: page,
-                totalPages: totalPages,
+                totalPages,
                 totalItems: totalReports,
                 itemsPerPage: limit,
                 hasNextPage: page < totalPages,
-                hasPreviousPage: page > 1
-            }
+                hasPreviousPage: page > 1,
+            },
         };
     } catch (error) {
-        console.error('Error fetching reports:', error);
-        throw new Error(`Failed to fetch reports: ${error.message}`);
+        console.error('Error fetching user reports:', error);
+        throw new Error(`Failed to fetch user reports: ${error.message}`);
     }
 };
 
-module.exports = { getAllReportsUC };
+module.exports = { getReportsByUserIdUC };

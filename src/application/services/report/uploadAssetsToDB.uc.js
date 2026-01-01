@@ -1,28 +1,24 @@
 const Report = require("../../../infrastructure/models/report");
 
-const createReportUC = async (report_id, reportData, userContext = {}) => {
+const createReportUC = async (report_id, reportData, userId) => {
     try {
-        // Check if report already exists
-        console.log("report_id", report_id, "reportData", reportData);
-        const existingReport = await Report.findOne({ report_id: report_id });
+        const existingReport = await Report.findOne({ report_id });
         if (existingReport) {
             throw new Error('Report already exists');
         }
 
-        // Filter and prepare the data
+        console.log("userId in create", userId);
+
         const filteredData = {
-            report_id: report_id,
+            report_id,
             startSubmitTime: new Date(),
-            user_id: userContext?.id,
-            user_phone: userContext?.phone,
-            company: userContext?.company || null
+            user_id: userId || null
         };
 
-        // If reportData is an array, treat it as asset_data
         if (Array.isArray(reportData)) {
             filteredData.asset_data = processAssetData(reportData);
         } else if (typeof reportData === 'object' && reportData !== null) {
-            // Handle basic report info if provided as object
+
             const basicFields = [
                 'title', 'purpose_id', 'value_premise_id', 'report_type',
                 'valued_at', 'submitted_at', 'assumptions', 'special_assumptions',
@@ -36,20 +32,11 @@ const createReportUC = async (report_id, reportData, userContext = {}) => {
                 }
             });
 
-            // Handle valuers array if provided
-            if (reportData.valuers && Array.isArray(reportData.valuers) && reportData.valuers.length > 0) {
-                filteredData.valuers = reportData.valuers.filter(valuer =>
-                    valuer.valuer_name && valuer.contribution_percentage !== undefined
-                );
-            }
-
-            // Handle asset_data array if provided
-            if (reportData.asset_data && Array.isArray(reportData.asset_data) && reportData.asset_data.length > 0) {
+            if (Array.isArray(reportData.asset_data) && reportData.asset_data.length > 0) {
                 filteredData.asset_data = processAssetData(reportData.asset_data);
             }
         }
 
-        // Create the new report
         const newReport = new Report(filteredData);
         await newReport.save();
 
@@ -67,14 +54,11 @@ const createReportUC = async (report_id, reportData, userContext = {}) => {
     } catch (error) {
         console.error('Error creating report:', error);
 
-        // ✅ Keep mongoose validation errors intact so controller can return field messages to UI
-        if (error && error.name === "ValidationError") {
-            throw error;
-        }
-
+        if (error?.name === "ValidationError") throw error;
         throw new Error(`Failed to create report: ${error.message}`);
     }
 };
+
 
 // Helper function to process asset data
 const processAssetData = (assetData) => {

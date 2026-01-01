@@ -1,91 +1,94 @@
 const mongoose = require('mongoose');
+const { v4: uuid } = require("uuid");
 
 const valuerSchema = new mongoose.Schema({
-    valuer_name: { type: String, required: true },
-    contribution_percentage: { type: Number, required: true },
+  valuer_name: { type: String, required: true },
+  contribution_percentage: { type: Number, required: true },
 });
 
 const reportSchema = new mongoose.Schema({
-    user_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-    user_phone: { type: String },
-    company: { type: mongoose.Schema.Types.ObjectId, ref: 'Company', default: null },
-    report_id: { type: String },
-    title: { type: String },
-    purpose_id: { type: String },
-    value_premise_id: { type: String },
-    report_type: { type: String },
-    valued_at: { type: String },
-    submitted_at: { type: String },
-    assumptions: { type: String },
-    special_assumptions: { type: String },
-    value: { type: String },
-    valuation_currency: { type: String },
-    pg_count: { type: Number },
+  user_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  user_phone: { type: String },
+  company: { type: mongoose.Schema.Types.ObjectId, ref: 'Company', default: null },
+  report_id: { type: String },
+  title: { type: String },
+  purpose_id: { type: String },
+  value_premise_id: { type: String },
+  report_type: { type: String },
+  valued_at: { type: String },
+  submitted_at: { type: String },
+  assumptions: { type: String },
+  special_assumptions: { type: String },
+  value: { type: String },
+  valuation_currency: { type: String },
+  pg_count: { type: Number },
 
 
-    report_asset_file: { type: String },
-    client_name: { type: String },
+  report_asset_file: { type: String },
+  client_name: { type: String },
 
-    telephone: { type: String },
-    email: { type: String },
-    has_other_users: { type: Boolean, default: false },
-    report_users: { type: [String], default: [] },
-    valuers: { type: [valuerSchema] },
+  telephone: { type: String },
+  email: { type: String },
+  has_other_users: { type: Boolean, default: false },
+  report_users: { type: [String], default: [] },
+  valuers: { type: [valuerSchema] },
+  report_status: { type: String },
 
-    startSubmitTime: { type: Date },
-    endSubmitTime: { type: Date },
+  startSubmitTime: { type: Date },
+  endSubmitTime: { type: Date },
 
-    checked: { type: Boolean, default: false },
+  checked: { type: Boolean, default: false },
 
-    asset_data: [{
-        id: { type: String },
-        serial_no: { type: String },
-        asset_type: { type: String, default: "0" },
-        asset_name: { type: String, required: true, message: "Asset Name is required" },
-        inspection_date: { type: String },
-        pg_no: { type: String },
+  asset_data: [{
+    internal_uid: { type: String, default: uuid, index: true },
+    id: { type: String },
+    serial_no: { type: String },
+    asset_type: { type: String, default: "0" },
+    asset_name: { type: String, required: true, message: "Asset Name is required" },
+    inspection_date: { type: String },
+    pg_no: { type: String },
 
-        model: { type: String },
-        owner_name: { type: String },
-        submitState: { type: Number, default: 0 },
-        year_made: { type: String },
-        final_value: {
-        type: String,
-     required: true,
-        trim: true,
-        validate: {
-          validator: function (v) {
-            if (typeof v !== "string") return false;
-      // must contain only digits (no decimals, no signs)
-      if (!/^\d+$/.test(v)) return false;
+    model: { type: String },
+    owner_name: { type: String },
+    submitState: { type: Number, default: 0 },
+    year_made: { type: String },
+    final_value: {
+      type: String,
+      required: true,
+      trim: true,
+      validate: {
+        validator: function (v) {
+          if (typeof v !== "string") return false;
+          // must contain only digits (no decimals, no signs)
+          if (!/^\d+$/.test(v)) return false;
 
-      const num = Number(v);
+          const num = Number(v);
 
-      // non-zero, non-negative
-      return Number.isInteger(num) && num > 0;
-    },
-    message:
-      "Final Value must be a Positive Whole Number (non-zero, non-negative, no decimals)",
-         },
+          // non-zero, non-negative
+          return Number.isInteger(num) && num > 0;
         },
+        message:
+          "Final Value must be a Positive Whole Number (non-zero, non-negative, no decimals)",
+      },
+    },
 
-        asset_usage_id: { type: String,required: true, message: "Asset Usage ID is required" },
-        value_base: { type: String },
-        inspection_date: { type: String },
-        production_capacity: { type: String, default: "0" },
-        production_capacity_measuring_unit: { type: String, default: "0" },
-        owner_name: { type: String },
-        product_type: { type: String, default: "0" },
-        market_approach: { type: String },
-        market_approach_value: { type: String },
-        cost_approach: { type: String },
-        cost_approach_value: { type: String },
+    asset_usage_id: { type: String, required: true, message: "Asset Usage ID is required" },
+    value_base: { type: String },
+    inspection_date: { type: String },
+    production_capacity: { type: String, default: "0" },
+    production_capacity_measuring_unit: { type: String, default: "0" },
+    owner_name: { type: String },
+    product_type: { type: String, default: "0" },
+    market_approach: { type: String },
+    market_approach_value: { type: String },
+    cost_approach: { type: String },
+    cost_approach_value: { type: String },
 
-        country: { type: String, default: "المملكة العربية السعودية" },
-        region: { type: String },
-        city: { type: String },
+    country: { type: String, default: "المملكة العربية السعودية" },
+    region: { type: String },
+    city: { type: String },
 
-    }],
+  }],
 }, { timestamps: true });
 
 const Report = mongoose.model('Report', reportSchema);

@@ -3,6 +3,8 @@ const DuplicateReport = require("../../infrastructure/models/DuplicateReport");
 const Report = require("../../infrastructure/models/report");
 const ElrajhiReport = require("../../infrastructure/models/ElrajhiReport");
 const UrgentReport = require("../../infrastructure/models/UrgentReport");
+const path = require("path");
+
 
 const normalizeKey = (value = "") =>
   value
@@ -400,6 +402,11 @@ exports.createDuplicateReport = async (req, res) => {
       return res.status(400).json({ success: false, message: "Excel file is required." });
     }
 
+    const pdfFile = req.files?.pdf?.[0];
+    const pdfPath = pdfFile ? path.resolve(pdfFile.path) : "";
+
+    console.log("pdfPath", pdfPath, "pdfFile", pdfFile);
+
     let payload = req.body || {};
     if (payload.formData) {
       try {
@@ -436,7 +443,7 @@ exports.createDuplicateReport = async (req, res) => {
       value: payload.value || "",
       valuation_currency: payload.valuation_currency || "to set",
       owner_name: payload.owner_name || "",
-      pdf_path: req.files?.pdf?.[0]?.path || "",
+      pdf_path: pdfPath,
       client_name: payload.client_name || "",
       telephone: payload.telephone || payload.phone || user.phone || "",
       email: payload.email || "",
