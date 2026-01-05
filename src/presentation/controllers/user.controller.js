@@ -1,6 +1,8 @@
 const bcrypt = require('bcryptjs');
 const User = require('../../infrastructure/models/user');
 const Company = require('../../infrastructure/models/company');
+const Subscription = require('../../infrastructure/models/subscription');
+
 
 const { generateAccessToken, generateRefreshToken } = require('../../application/services/user/jwt.service');
 
@@ -313,8 +315,7 @@ exports.taqeemBootstrap = async (req, res) => {
 exports.authorizeTaqeem = async (req, res) => {
     try {
         const userId = req.userId;
-        console.log("userId", userId);
-
+        const assetCount = Number(req.body.assetCount || 0);
 
         const user = await User.findById(userId);
 
@@ -322,7 +323,29 @@ exports.authorizeTaqeem = async (req, res) => {
             return res.status(404).json({ message: 'User not found' });
         }
 
-        // 1) If user has normal credentials → authorize directly
+        /**
+         * 1) If assetCount is provided, validate against remaining points
+         */
+        if (assetCount > 0) {
+            const subscriptions = await Subscription.find({ userId });
+
+            const remainingPoints = subscriptions.reduce(
+                (sum, sub) => sum + (sub.remainingPoints || 0),
+                0
+            );
+
+            if (assetCount > remainingPoints) {
+                return res.status(200).json({
+                    status: 'INSUFFICIENT_POINTS',
+                    required: assetCount,
+                    available: remainingPoints
+                });
+            }
+        }
+
+        /**
+         * 2) If user has normal credentials → authorize directly
+         */
         if (user.phone && user.password) {
             return res.json({
                 status: 'AUTHORIZED',
@@ -331,7 +354,9 @@ exports.authorizeTaqeem = async (req, res) => {
             });
         }
 
-        // 2) Ensure taqeem profile exists
+        /**
+         * 3) Ensure taqeem profile exists
+         */
         if (!user.taqeem) {
             return res.status(400).json({
                 status: 'NOT_AUTHORIZED',
@@ -339,15 +364,15 @@ exports.authorizeTaqeem = async (req, res) => {
             });
         }
 
-        // 3) Bootstrap flow
-        // If already used → deny authorization
+        /**
+         * 4) Bootstrap logic
+         */
         if (user.taqeem.bootstrap_used) {
             return res.status(403).json({
                 status: 'LOGIN_REQUIRED'
             });
         }
 
-        // Not used yet → mark as used and authorize
         user.taqeem.bootstrap_used = true;
         await user.save();
 
@@ -359,6 +384,10 @@ exports.authorizeTaqeem = async (req, res) => {
 
     } catch (err) {
         console.error(err);
-        return res.status(500).json({ message: 'Server error', error: err.message });
+        return res.status(500).json({
+            message: 'Server error',
+            error: err.message
+        });
     }
 };
+

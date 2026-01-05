@@ -97,7 +97,11 @@ exports.getUserSubscriptions = async (req, res) => {
     const userId = req.userId;
     try {
         const subscriptions = await Subscription.find({ userId }).populate('packageId');
-        const totalPoints = subscriptions.reduce((sum, sub) => sum + sub.packageId.points, 0);
+        const totalPoints = subscriptions.reduce(
+            (sum, sub) => sum + (sub.remainingPoints || 0),
+            0
+        );
+
         res.json({ totalPoints, subscriptions });
     } catch (error) {
         res.status(500).json({ message: error.message });

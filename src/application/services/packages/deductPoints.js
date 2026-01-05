@@ -1,3 +1,5 @@
+const Subscription = require('../../../infrastructure/models/subscription');
+
 async function deductPoints(userId, amount) {
     if (amount <= 0) throw new Error('Invalid deduction amount');
 
