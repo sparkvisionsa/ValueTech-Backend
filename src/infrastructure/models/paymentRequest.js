@@ -5,11 +5,15 @@ const paymentRequestSchema = new mongoose.Schema({
     packageId: { type: mongoose.Schema.Types.ObjectId, ref: 'Package', required: true },
     packageName: { type: String, required: true },
     packagePoints: { type: Number, required: true },
-    status: { type: String, enum: ['pending', 'confirmed', 'rejected'], default: 'pending' },
+    packagePrice: { type: Number, default: 0 },
+    accountNumber: { type: String, default: '', trim: true },
+    status: { type: String, enum: ['new', 'pending', 'confirmed', 'rejected'], default: 'new' },
     transferImagePath: { type: String, default: '' },
     transferImageOriginalName: { type: String, default: '' },
     userNotified: { type: Boolean, default: true },
-    decisionAt: { type: Date, default: null }
+    decisionAt: { type: Date, default: null },
+    lastMessageAt: { type: Date, default: null },
+    lastMessagePreview: { type: String, default: '' }
 }, { timestamps: true });
 
 const PaymentRequest = mongoose.model('PaymentRequest', paymentRequestSchema);
