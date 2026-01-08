@@ -11,7 +11,7 @@ const userSchema = new mongoose.Schema({
     displayName: { type: String },
     taqeem: {
         username: { type: String, index: true, required: true },
-        password: { type: String, required: true },
+        password: { type: String },
         bootstrap_used: { type: Boolean, default: false },
     },
     permissions: { type: [String], default: [] }

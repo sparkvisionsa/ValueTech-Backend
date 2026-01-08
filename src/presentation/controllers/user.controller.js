@@ -2,6 +2,7 @@ const bcrypt = require('bcryptjs');
 const User = require('../../infrastructure/models/user');
 const Company = require('../../infrastructure/models/company');
 const Subscription = require('../../infrastructure/models/subscription');
+const Package = require('../../infrastructure/models/package');
 
 
 const { generateAccessToken, generateRefreshToken } = require('../../application/services/user/jwt.service');
@@ -310,7 +311,132 @@ exports.taqeemBootstrap = async (req, res) => {
         console.error(err);
         return res.status(500).json({ message: "Server error", error: err.message });
     }
+}
+
+exports.newTaqeemBootstrap = async (req, res) => {
+    try {
+        const { username } = req.body;
+
+        if (req.userId) {
+            return res.json({
+                status: "NORMAL_ACCOUNT",
+                userId: req.userId
+            });
+        }
+
+        if (!username?.trim()) {
+            return res.status(400).json({ status: 'ERROR', message: 'Username required' });
+        }
+
+        const trimmedUsername = username.trim();
+        let user = await User.findOne({ "taqeem.username": trimmedUsername });
+
+        // Create new user if not found
+        if (!user) {
+            user = await User.create({
+                taqeem: { username: trimmedUsername, password: '', bootstrap_used: false }
+            });
+
+            const pkg = await Package.findById("692efc0d41a4767cfb91821b");
+            if (!pkg) throw new Error("Package not found");
+
+            console.log("pkg", pkg);
+
+            const points = pkg.points;
+
+            const subscriptions = new Subscription({
+                userId: user._id,
+                packageId: "692efc0d41a4767cfb91821b",
+                remainingPoints: points
+            });
+
+            await subscriptions.save();
+
+            // Generate token for the new user
+            const payload = {
+                id: user._id.toString(),
+                phone: user.phone || null,
+                type: user.type || "taqeem",
+                role: user.role || "user",
+                company: user.company || null,
+                permissions: user.permissions || []
+            };
+
+            const accessToken = generateAccessToken(payload);
+            const refreshToken = generateRefreshToken(payload);
+
+            res.cookie("refreshToken", refreshToken, {
+                httpOnly: true,
+                secure: process.env.NODE_ENV === "production",
+                sameSite: "Strict",
+                maxAge: 7 * 24 * 60 * 60 * 1000
+            });
+
+            return res.json({
+                status: "BOOTSTRAP_GRANTED",
+                token: accessToken,
+                refreshToken,
+                userId: user._id,
+                reason: 'NEW_USER'
+            });
+        }
+
+        // Check if user is fully registered (has phone and password)
+        if (user.phone && user.password) {
+            return res.json({
+                status: 'LOGIN_REQUIRED',
+                reason: 'TAQEEM_USERNAME_TAKEN',
+                userId: user._id,
+                message: 'User is fully registered'
+            });
+        }
+
+        // Check if bootstrap already used
+        if (user.taqeem?.bootstrap_used === true) {
+            return res.status(403).json({
+                status: "LOGIN_REQUIRED",
+                reason: 'BOOTSTRAP_USED'
+            });
+        }
+
+        // User exists and bootstrap is available - generate token
+        const payload = {
+            id: user._id.toString(),
+            phone: user.phone || null,
+            type: user.type || "taqeem",
+            role: user.role || "user",
+            company: user.company || null,
+            permissions: user.permissions || []
+        };
+
+        const accessToken = generateAccessToken(payload);
+        const refreshToken = generateRefreshToken(payload);
+
+        res.cookie("refreshToken", refreshToken, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === "production",
+            sameSite: "Strict",
+            maxAge: 7 * 24 * 60 * 60 * 1000
+        });
+
+        return res.json({
+            status: "BOOTSTRAP_GRANTED",
+            token: accessToken,
+            refreshToken,
+            userId: user._id,
+            reason: 'BOOTSTRAP_AVAILABLE'
+        });
+
+    } catch (err) {
+        console.error(err);
+        return res.status(500).json({
+            status: 'ERROR',
+            message: 'Server error',
+            error: err.message
+        });
+    }
 };
+
 
 exports.authorizeTaqeem = async (req, res) => {
     try {
@@ -324,29 +450,28 @@ exports.authorizeTaqeem = async (req, res) => {
         }
 
         /**
-         * 1) If assetCount is provided, validate against remaining points
-         */
-        if (assetCount > 0) {
-            const subscriptions = await Subscription.find({ userId });
-
-            const remainingPoints = subscriptions.reduce(
-                (sum, sub) => sum + (sub.remainingPoints || 0),
-                0
-            );
-
-            if (assetCount > remainingPoints) {
-                return res.status(200).json({
-                    status: 'INSUFFICIENT_POINTS',
-                    required: assetCount,
-                    available: remainingPoints
-                });
-            }
-        }
-
-        /**
-         * 2) If user has normal credentials → authorize directly
+         * 1) NORMAL USER FLOW (phone + password)
+         *    Only here we validate asset count
          */
         if (user.phone && user.password) {
+
+            if (assetCount > 0) {
+                const subscriptions = await Subscription.find({ userId });
+
+                const remainingPoints = subscriptions.reduce(
+                    (sum, sub) => sum + (sub.remainingPoints || 0),
+                    0
+                );
+
+                if (assetCount > remainingPoints) {
+                    return res.status(200).json({
+                        status: 'INSUFFICIENT_POINTS',
+                        required: assetCount,
+                        available: remainingPoints
+                    });
+                }
+            }
+
             return res.json({
                 status: 'AUTHORIZED',
                 reason: 'NORMAL_ACCOUNT',
@@ -355,8 +480,10 @@ exports.authorizeTaqeem = async (req, res) => {
         }
 
         /**
-         * 3) Ensure taqeem profile exists
+         * 2) NON-NORMAL USER FLOW → BOOTSTRAP ONLY
          */
+
+        // ensure taqeem profile exists
         if (!user.taqeem) {
             return res.status(400).json({
                 status: 'NOT_AUTHORIZED',
@@ -364,15 +491,14 @@ exports.authorizeTaqeem = async (req, res) => {
             });
         }
 
-        /**
-         * 4) Bootstrap logic
-         */
+        // if bootstrap already used, force login
         if (user.taqeem.bootstrap_used) {
             return res.status(403).json({
                 status: 'LOGIN_REQUIRED'
             });
         }
 
+        // first-time bootstrap
         user.taqeem.bootstrap_used = true;
         await user.save();
 
