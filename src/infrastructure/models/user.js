@@ -9,6 +9,8 @@ const userSchema = new mongoose.Schema({
     companyName: { type: String },
     headName: { type: String },
     displayName: { type: String },
+    profileImagePath: { type: String, default: '' },
+    profileImageFileId: { type: mongoose.Schema.Types.ObjectId, ref: 'StoredFile', default: null },
     taqeem: {
         username: { type: String, index: true, required: true },
         password: { type: String },

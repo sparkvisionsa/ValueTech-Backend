@@ -10,6 +10,7 @@ const ticketMessageSchema = new mongoose.Schema(
         attachments: {
             type: [
                 {
+                    fileId: { type: mongoose.Schema.Types.ObjectId, ref: 'StoredFile', default: null },
                     url: { type: String, required: true },
                     name: { type: String, default: '' },
                     type: { type: String, default: '' },

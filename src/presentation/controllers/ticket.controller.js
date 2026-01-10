@@ -4,6 +4,7 @@ const User = require('../../infrastructure/models/user');
 const { getSocketServer } = require('../sockets/socketRegistry');
 const { ADMIN_PHONE, SUPPORT_PHONES, isAdminUser, isSupportUser } = require('../../utils/supportUsers');
 const { createNotification, createNotifications } = require('../../application/services/notification/notification.service');
+const { storeAttachments } = require('../../application/services/files/fileStorage.service');
 const PREVIEW_LIMIT = 140;
 
 const buildPreview = (text = '') => {
@@ -12,14 +13,9 @@ const buildPreview = (text = '') => {
     return `${trimmed.slice(0, PREVIEW_LIMIT)}...`;
 };
 
-const buildAttachments = (files = []) => {
-    if (!Array.isArray(files)) return [];
-    return files.map((file) => ({
-        url: `/uploads/tickets/${file.filename}`,
-        name: file.originalname || file.filename,
-        type: file.mimetype || '',
-        size: file.size || 0
-    }));
+const buildAttachments = async (files = [], ownerId = null) => {
+    if (!Array.isArray(files) || files.length === 0) return [];
+    return storeAttachments(files, { ownerId, purpose: 'ticket' });
 };
 
 const buildMessagePreview = (body = '', attachments = []) => {
@@ -81,9 +77,9 @@ exports.createTicket = async (req, res) => {
             return res.status(400).json({ message: 'subject is required' });
         }
 
-        const attachments = buildAttachments(req.files);
+        const attachmentFiles = Array.isArray(req.files) ? req.files : [];
         const messageBody = String(message || '').trim();
-        if (!messageBody && attachments.length === 0) {
+        if (!messageBody && attachmentFiles.length === 0) {
             return res.status(400).json({ message: 'message or attachments are required' });
         }
 
@@ -93,6 +89,7 @@ exports.createTicket = async (req, res) => {
         }
 
         const adminUser = await User.findOne({ phone: ADMIN_PHONE });
+        const attachments = await buildAttachments(attachmentFiles, user._id);
         const preview = buildMessagePreview(messageBody, attachments);
 
         const ticket = await Ticket.create({
@@ -294,12 +291,12 @@ exports.createMessage = async (req, res) => {
         const userId = req.userId;
         const { id } = req.params;
         const body = String(req.body.body || '').trim();
-        const attachments = buildAttachments(req.files);
+        const attachmentFiles = Array.isArray(req.files) ? req.files : [];
 
         if (!userId) {
             return res.status(401).json({ message: 'Authentication required' });
         }
-        if (!body && attachments.length === 0) {
+        if (!body && attachmentFiles.length === 0) {
             return res.status(400).json({ message: 'message or attachments are required' });
         }
 
@@ -317,6 +314,7 @@ exports.createMessage = async (req, res) => {
         }
 
         const senderRole = isAdminUser(user) ? 'admin' : isSupportUser(user) ? 'support' : 'user';
+        const attachments = await buildAttachments(attachmentFiles, user._id);
         const messageDoc = await TicketMessage.create({
             ticketId: ticket._id,
             senderId: user._id,

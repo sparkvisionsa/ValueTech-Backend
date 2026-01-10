@@ -3,9 +3,27 @@ const User = require('../../infrastructure/models/user');
 const Company = require('../../infrastructure/models/company');
 const Subscription = require('../../infrastructure/models/subscription');
 const Package = require('../../infrastructure/models/package');
+const StoredFile = require('../../infrastructure/models/storedFile');
 
 
 const { generateAccessToken, generateRefreshToken } = require('../../application/services/user/jwt.service');
+const { storeUploadedFile, buildFileUrl } = require('../../application/services/files/fileStorage.service');
+
+const buildUserPayload = (user) => ({
+    _id: user._id,
+    phone: user.phone,
+    type: user.type,
+    role: user.role,
+    company: user.company,
+    companyName: user.companyName,
+    headName: user.headName,
+    taqeem: user.taqeem,
+    permissions: user.permissions,
+    profileImagePath: user.profileImagePath || '',
+    profileImageFileId: user.profileImageFileId || null,
+    createdAt: user.createdAt,
+    updatedAt: user.updatedAt
+});
 
 exports.register = async (req, res) => {
     try {
@@ -144,19 +162,7 @@ exports.register = async (req, res) => {
             message: existingUserByTaqeem ? 'User account linked and updated successfully.' : 'User registered successfully.',
             token: accessToken,
             refreshToken,
-            user: {
-                _id: user._id,
-                phone: user.phone,
-                type: user.type,
-                role: user.role,
-                company: user.company,
-                companyName: user.companyName,
-                headName: user.headName,
-                taqeem: user.taqeem,
-                permissions: user.permissions,
-                createdAt: user.createdAt,
-                updatedAt: user.updatedAt
-            }
+            user: buildUserPayload(user)
         });
     } catch (err) {
         res.status(500).json({ message: 'Server error', error: err.message });
@@ -198,21 +204,41 @@ exports.login = async (req, res) => {
             message: 'Login successful.',
             token: accessToken,
             refreshToken, // <-- optional: helpful for main process to set cookie
-            user: {
-                _id: user._id,
-                phone: user.phone,
-                type: user.type,
-                role: user.role,
-                company: user.company,
-                companyName: user.companyName,
-                headName: user.headName,
-                permissions: user.permissions,
-                createdAt: user.createdAt
-            }
+            user: buildUserPayload(user)
         });
     } catch (err) {
         console.error(err);
         return res.status(500).json({ message: 'Server error', error: err.message });
+    }
+};
+
+exports.uploadProfileImage = async (req, res) => {
+    try {
+        const userId = req.userId;
+        if (!userId) {
+            return res.status(401).json({ message: 'Authentication required' });
+        }
+        if (!req.file) {
+            return res.status(400).json({ message: 'Profile image is required' });
+        }
+
+        const user = await User.findById(userId);
+        if (!user) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+
+        const storedFile = await storeUploadedFile(req.file, { ownerId: user._id, purpose: 'profile' });
+        if (user.profileImageFileId) {
+            await StoredFile.findByIdAndDelete(user.profileImageFileId).catch(() => null);
+        }
+
+        user.profileImageFileId = storedFile._id;
+        user.profileImagePath = buildFileUrl(storedFile._id.toString());
+        await user.save();
+
+        return res.json({ user: buildUserPayload(user) });
+    } catch (err) {
+        return res.status(500).json({ message: 'Failed to upload profile image', error: err.message });
     }
 };
 

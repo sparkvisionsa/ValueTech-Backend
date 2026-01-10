@@ -13,6 +13,7 @@ const multiApproachRoutes = require("../routes/multiApproach.route");
 const submitReportsQuicklyRoutes = require("../routes/submitReportsQuickly.route");
 const ticketRoutes = require("../routes/ticket.routes");
 const notificationRoutes = require("../routes/notification.routes");
+const filesRoutes = require("../routes/files.routes");
 
 
 
@@ -34,6 +35,7 @@ router.use("/multi-approach", multiApproachRoutes);
 router.use("/submit-reports-quickly", submitReportsQuicklyRoutes);
 router.use("/tickets", ticketRoutes);
 router.use('/notifications', notificationRoutes);
+router.use('/files', filesRoutes);
 
 router.get('/health', (req, res) => res.json({ ok: true }));
 

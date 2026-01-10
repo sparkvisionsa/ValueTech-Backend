@@ -3,8 +3,10 @@ const Subscription = require('../../infrastructure/models/subscription');
 const PaymentRequest = require('../../infrastructure/models/paymentRequest');
 const PaymentRequestMessage = require('../../infrastructure/models/paymentRequestMessage');
 const User = require('../../infrastructure/models/user');
+const StoredFile = require('../../infrastructure/models/storedFile');
 const deductPoints = require('../../application/services/packages/deductPoints');
 const { createNotification } = require('../../application/services/notification/notification.service');
+const { storeAttachments, storeUploadedFile, buildFileUrl } = require('../../application/services/files/fileStorage.service');
 
 const ADMIN_PHONE = process.env.ADMIN_PHONE || '011111';
 const PREVIEW_LIMIT = 140;
@@ -26,14 +28,9 @@ const buildPreview = (text = '') => {
     return `${trimmed.slice(0, PREVIEW_LIMIT)}...`;
 };
 
-const buildAttachments = (files = []) => {
-    if (!Array.isArray(files)) return [];
-    return files.map((file) => ({
-        url: `/uploads/request-messages/${file.filename}`,
-        name: file.originalname || file.filename,
-        type: file.mimetype || '',
-        size: file.size || 0
-    }));
+const buildAttachments = async (files = [], ownerId = null) => {
+    if (!Array.isArray(files) || files.length === 0) return [];
+    return storeAttachments(files, { ownerId, purpose: 'request-message' });
 };
 
 const buildMessagePreview = (body = '', attachments = []) => {
@@ -273,8 +270,13 @@ exports.uploadRequestTransferImage = async (req, res) => {
             return res.status(400).json({ message: 'Request already confirmed' });
         }
 
-        request.transferImagePath = `/uploads/transfers/${req.file.filename}`;
-        request.transferImageOriginalName = req.file.originalname;
+        const storedFile = await storeUploadedFile(req.file, { ownerId: request.userId, purpose: 'transfer' });
+        if (request.transferImageFileId) {
+            await StoredFile.findByIdAndDelete(request.transferImageFileId).catch(() => null);
+        }
+        request.transferImageFileId = storedFile._id;
+        request.transferImagePath = buildFileUrl(storedFile._id.toString());
+        request.transferImageOriginalName = storedFile.originalName || req.file.originalname;
         if (request.status === 'new') {
             request.status = 'pending';
         }
@@ -327,7 +329,7 @@ exports.updatePackageRequestStatus = async (req, res) => {
             return res.status(400).json({ message: 'Request already processed' });
         }
 
-        if (status === 'confirmed' && !request.transferImagePath) {
+        if (status === 'confirmed' && !request.transferImagePath && !request.transferImageFileId) {
             return res.status(400).json({ message: 'Transfer image is required to approve' });
         }
 
@@ -512,12 +514,12 @@ exports.createPackageRequestMessage = async (req, res) => {
         const userId = req.userId;
         const { id } = req.params;
         const body = String(req.body.body || '').trim();
-        const attachments = buildAttachments(req.files);
+        const attachmentFiles = Array.isArray(req.files) ? req.files : [];
 
         if (!userId) {
             return res.status(401).json({ message: 'Authentication required' });
         }
-        if (!body && attachments.length === 0) {
+        if (!body && attachmentFiles.length === 0) {
             return res.status(400).json({ message: 'message or attachments are required' });
         }
 
@@ -537,6 +539,7 @@ exports.createPackageRequestMessage = async (req, res) => {
         }
 
         const senderRole = isAdmin ? 'admin' : 'user';
+        const attachments = await buildAttachments(attachmentFiles, user._id);
         const messageDoc = await PaymentRequestMessage.create({
             requestId: request._id,
             senderId: user._id,

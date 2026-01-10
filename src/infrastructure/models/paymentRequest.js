@@ -10,6 +10,7 @@ const paymentRequestSchema = new mongoose.Schema({
     status: { type: String, enum: ['new', 'pending', 'confirmed', 'rejected'], default: 'new' },
     transferImagePath: { type: String, default: '' },
     transferImageOriginalName: { type: String, default: '' },
+    transferImageFileId: { type: mongoose.Schema.Types.ObjectId, ref: 'StoredFile', default: null },
     userNotified: { type: Boolean, default: true },
     decisionAt: { type: Date, default: null },
     lastMessageAt: { type: Date, default: null },
