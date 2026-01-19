@@ -240,7 +240,13 @@ exports.processSubmitReportsQuicklyBatch = async (req, res) => {
     const excelFiles = req.files.excels;
     const pdfFiles = req.files.pdfs || [];
     const skipPdfUpload = req.body.skipPdfUpload === 'true' || req.body.skipPdfUpload === true;
-    const user_id = req.user.id;
+    const user_id = req.user?.id || req.user?._id || req.user?.userId || req.user?.user_id;
+    if (!user_id) {
+      return res.status(401).json({
+        status: "failed",
+        error: "Unauthorized",
+      });
+    }
 
     // 1) Build maps by basename (without extension)
     const excelMap = new Map(); // basename -> { file, pdfs: [] }
@@ -544,7 +550,7 @@ exports.listSubmitReportsQuickly = async (req, res) => {
 exports.getQuickReportsByUserId = async (req, res) => {
   try {
     console.log("user", req.user);
-    const user_id = req.user.id;
+    const user_id = req.user?.id || req.user?._id || req.user?.userId || req.user?.user_id;
 
     if (!user_id) {
       return res.status(401).json({
