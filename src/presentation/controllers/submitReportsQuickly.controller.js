@@ -474,9 +474,11 @@ exports.processSubmitReportsQuicklyBatch = async (req, res) => {
       const city = firstAsset.city || "";
 
       // 3.6 Build document for this Excel
+      const isGuestToken = Boolean(req.user?.guest);
+
       docsToInsert.push({
         user_id,
-        user_phone: req.user?.phone || null,
+        user_phone: isGuestToken ? null : (req.user?.phone || null),
         company: req.user?.company || null,
         batch_id: batchId,
         source_excel_name: file.originalname,

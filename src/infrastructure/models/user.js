@@ -15,6 +15,7 @@ const userSchema = new mongoose.Schema({
         username: { type: String, index: true },
         password: { type: String },
         bootstrap_used: { type: Boolean, default: false },
+        bootstrap_uses: { type: Number, default: 0 },
     },
     permissions: { type: [String], default: [] }
 }, { timestamps: true });

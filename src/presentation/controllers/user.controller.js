@@ -4,6 +4,7 @@ const Company = require('../../infrastructure/models/company');
 const Subscription = require('../../infrastructure/models/subscription');
 const Package = require('../../infrastructure/models/package');
 const StoredFile = require('../../infrastructure/models/storedFile');
+const SystemState = require('../../infrastructure/models/systemState');
 
 
 const { generateAccessToken, generateRefreshToken } = require('../../application/services/user/jwt.service');
@@ -24,6 +25,31 @@ const buildUserPayload = (user) => ({
     createdAt: user.createdAt,
     updatedAt: user.updatedAt
 });
+
+const DEFAULT_GUEST_LIMIT = 1;
+
+const getBootstrapUses = (user) => {
+    const uses = Number(user?.taqeem?.bootstrap_uses);
+    if (Number.isFinite(uses)) return uses;
+    return user?.taqeem?.bootstrap_used ? 1 : 0;
+};
+
+const setBootstrapUses = (user, uses) => {
+    if (!user.taqeem) {
+        user.taqeem = { username: '', password: '' };
+    }
+    const next = Math.max(0, Number(uses) || 0);
+    user.taqeem.bootstrap_uses = next;
+    user.taqeem.bootstrap_used = next > 0;
+};
+
+const getGuestAccessConfig = async () => {
+    const state = await SystemState.getSingleton();
+    const enabled = state?.guestAccessEnabled !== false;
+    const limitRaw = Number(state?.guestAccessLimit);
+    const maxUses = Number.isFinite(limitRaw) && limitRaw > 0 ? limitRaw : DEFAULT_GUEST_LIMIT;
+    return { enabled, maxUses };
+};
 
 exports.register = async (req, res) => {
     try {
@@ -264,16 +290,18 @@ exports.taqeemBootstrap = async (req, res) => {
                     username,
                     password,
                     bootstrap_used: false,
+                    bootstrap_uses: 0,
                 }
             });
 
             const payload = {
                 id: user._id.toString(),
-                phone: user.phone || null,
+                phone: null,
                 type: user.type || "taqeem",
                 role: user.role || "user",
                 company: user.company || null,
-                permissions: user.permissions || []
+                permissions: user.permissions || [],
+                guest: true
             };
 
             const accessToken = generateAccessToken(payload);
@@ -299,21 +327,25 @@ exports.taqeemBootstrap = async (req, res) => {
             return res.status(401).json({ message: "Invalid credentials" });
         }
 
-        // CASE 3 — user exists and bootstrap already used → NO token
-        if (user.taqeem.bootstrap_used) {
+        // CASE 3 — user exists and bootstrap limit reached → NO token
+        const { enabled, maxUses } = await getGuestAccessConfig();
+        const uses = getBootstrapUses(user);
+        if (enabled && uses >= maxUses) {
             return res.status(403).json({
-                status: "LOGIN_REQUIRED"
+                status: "LOGIN_REQUIRED",
+                reason: "BOOTSTRAP_LIMIT_REACHED"
             });
         }
 
         // CASE 4 — user exists, password correct, bootstrap not yet used → send token
         const payload = {
             id: user._id.toString(),
-            phone: user.phone || null,
+            phone: null,
             type: user.type || "taqeem",
             role: user.role || "user",
             company: user.company || null,
-            permissions: user.permissions || []
+            permissions: user.permissions || [],
+            guest: true
         };
 
         const accessToken = generateAccessToken(payload);
@@ -360,7 +392,7 @@ exports.newTaqeemBootstrap = async (req, res) => {
         // Create new user if not found
         if (!user) {
             user = await User.create({
-                taqeem: { username: trimmedUsername, password: '', bootstrap_used: false }
+                taqeem: { username: trimmedUsername, password: '', bootstrap_used: false, bootstrap_uses: 0 }
             });
 
             const pkg = await Package.findById("692efc0d41a4767cfb91821b");
@@ -381,11 +413,12 @@ exports.newTaqeemBootstrap = async (req, res) => {
             // Generate token for the new user
             const payload = {
                 id: user._id.toString(),
-                phone: user.phone || null,
+                phone: null,
                 type: user.type || "taqeem",
                 role: user.role || "user",
                 company: user.company || null,
-                permissions: user.permissions || []
+                permissions: user.permissions || [],
+                guest: true
             };
 
             const accessToken = generateAccessToken(payload);
@@ -407,32 +440,25 @@ exports.newTaqeemBootstrap = async (req, res) => {
             });
         }
 
-        // Check if user is fully registered (has phone and password)
-        if (user.phone && user.password) {
-            return res.json({
-                status: 'LOGIN_REQUIRED',
-                reason: 'TAQEEM_USERNAME_TAKEN',
-                userId: user._id,
-                message: 'User is fully registered'
-            });
-        }
-
-        // Check if bootstrap already used
-        if (user.taqeem?.bootstrap_used === true) {
+        // Check if bootstrap limit reached
+        const { enabled, maxUses } = await getGuestAccessConfig();
+        const uses = getBootstrapUses(user);
+        if (enabled && uses >= maxUses) {
             return res.status(403).json({
                 status: "LOGIN_REQUIRED",
-                reason: 'BOOTSTRAP_USED'
+                reason: 'BOOTSTRAP_LIMIT_REACHED'
             });
         }
 
         // User exists and bootstrap is available - generate token
         const payload = {
             id: user._id.toString(),
-            phone: user.phone || null,
+            phone: null,
             type: user.type || "taqeem",
             role: user.role || "user",
             company: user.company || null,
-            permissions: user.permissions || []
+            permissions: user.permissions || [],
+            guest: true
         };
 
         const accessToken = generateAccessToken(payload);
@@ -517,20 +543,24 @@ exports.authorizeTaqeem = async (req, res) => {
             });
         }
 
-        // if bootstrap already used, force login
-        if (user.taqeem.bootstrap_used) {
+        // if bootstrap limit reached, force login
+        const { enabled, maxUses } = await getGuestAccessConfig();
+        const uses = getBootstrapUses(user);
+        if (enabled && uses >= maxUses) {
             return res.status(403).json({
-                status: 'LOGIN_REQUIRED'
+                status: 'LOGIN_REQUIRED',
+                reason: 'BOOTSTRAP_LIMIT_REACHED'
             });
         }
 
-        // first-time bootstrap
-        user.taqeem.bootstrap_used = true;
-        await user.save();
+        if (enabled) {
+            setBootstrapUses(user, uses + 1);
+            await user.save();
+        }
 
         return res.json({
             status: 'AUTHORIZED',
-            reason: 'BOOTSTRAP_ACTIVATED',
+            reason: enabled ? 'BOOTSTRAP_ACTIVATED' : 'BOOTSTRAP_UNLIMITED',
             userId: user._id
         });
 

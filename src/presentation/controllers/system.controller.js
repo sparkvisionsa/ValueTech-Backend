@@ -58,7 +58,18 @@ exports.getSystemState = async (req, res) => {
 };
 
 exports.updateSystemState = async (req, res) => {
-    const { mode, expectedReturn, downtimeDays, downtimeHours, notes, allowedModules, partialMessage } = req.body;
+    const {
+        mode,
+        expectedReturn,
+        downtimeDays,
+        downtimeHours,
+        notes,
+        allowedModules,
+        partialMessage,
+        guestAccessEnabled,
+        guestAccessLimit,
+        ramTabsPerGb
+    } = req.body;
     try {
         if (mode && !VALID_MODES.includes(mode)) {
             return res.status(400).json({ message: 'Invalid mode supplied' });
@@ -99,6 +110,26 @@ exports.updateSystemState = async (req, res) => {
             state.allowedModules = allowedModules.filter(Boolean);
         } else if (mode && mode !== 'partial' && mode !== 'demo') {
             state.allowedModules = [];
+        }
+
+        if (typeof guestAccessEnabled === 'boolean') {
+            state.guestAccessEnabled = guestAccessEnabled;
+        }
+
+        if (typeof guestAccessLimit === 'number' || typeof guestAccessLimit === 'string') {
+            const parsed = Number(guestAccessLimit);
+            if (Number.isNaN(parsed) || parsed < 1) {
+                return res.status(400).json({ message: 'guestAccessLimit must be a number greater than 0' });
+            }
+            state.guestAccessLimit = parsed;
+        }
+
+        if (typeof ramTabsPerGb === 'number' || typeof ramTabsPerGb === 'string') {
+            const parsed = Number(ramTabsPerGb);
+            if (Number.isNaN(parsed) || parsed <= 0) {
+                return res.status(400).json({ message: 'ramTabsPerGb must be a number greater than 0' });
+            }
+            state.ramTabsPerGb = parsed;
         }
 
         state.updatedBy = req.userId || state.updatedBy;

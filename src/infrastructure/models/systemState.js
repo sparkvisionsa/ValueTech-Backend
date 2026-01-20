@@ -12,6 +12,9 @@ const systemStateSchema = new mongoose.Schema({
     notes: { type: String },
     partialMessage: { type: String, default: '' },
     allowedModules: [{ type: String }],
+    guestAccessEnabled: { type: Boolean, default: true },
+    guestAccessLimit: { type: Number, default: 1 },
+    ramTabsPerGb: { type: Number, default: 5 },
     updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     updatedByPhone: { type: String, default: ADMIN_PHONE },
 }, { timestamps: true });
