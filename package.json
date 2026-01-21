@@ -8,6 +8,7 @@
     "start": "node src/index.js",
     "test": "jest",
     "prisma:migrate": "npx prisma migrate dev --name init",
+    "update": "git fetch origin && git reset --hard origin/main && git clean -fd && npm install",
     "prisma:generate": "npx prisma generate",
     "prisma:studio": "npx prisma studio"
   },
