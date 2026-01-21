@@ -9,7 +9,7 @@
     "test": "jest",
     "prisma:migrate": "npx prisma migrate dev --name init",
     "updated": "git fetch origin && git reset --hard origin/main && git clean -fd && npm install && npm run dev",
-    "push": "node bump-and-push.js",
+    "push": "node bump_push.js",
     "prisma:generate": "npx prisma generate",
     "prisma:studio": "npx prisma studio"
   },
