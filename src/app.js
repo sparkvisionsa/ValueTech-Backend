@@ -4,10 +4,6 @@ const cookieParser = require('cookie-parser');
 
 const routes = require('./presentation/routes/index.routes');
 const adsRoutes = require("./presentation/routes/ads.route");
-// const allReportRoutes = require("./presentation/routes/reportLookup.route");
-
-
-
 
 const app = express();
 
@@ -16,6 +12,7 @@ app.use(express.urlencoded({
     limit: '100mb',
     extended: true
 }));
+
 app.use(cookieParser());
 app.use(morgan('dev'));
 app.use('/uploads', express.static('uploads'));

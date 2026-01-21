@@ -18,6 +18,8 @@ const filesRoutes = require("../routes/files.routes");
 // ✅ NEW
 const reportLookupRoutes = require("../routes/reportLookup.route");
 
+const buildVersion = require("../../../build-version.json");
+
 const router = express.Router();
 
 router.use('/report', reportRoutes);
@@ -42,6 +44,6 @@ router.use('/files', filesRoutes);
 // ✅ NEW endpoint group
 router.use('/report-lookup', reportLookupRoutes);
 
-router.get('/health', (req, res) => res.json({ ok: true }));
+router.get('/health', (req, res) => res.json({ ok: true, version: buildVersion.build }));
 
 module.exports = router;
