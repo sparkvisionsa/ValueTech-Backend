@@ -8,6 +8,7 @@ function extractManufacturingYear(text) {
   if (!text || typeof text !== 'string') return null;
   
   // Match 4-digit years between 1950 and current year + 1
+  // Match 4-digit years between 1950 and current year + 1
   const currentYear = new Date().getFullYear();
   const yearPattern = /\b(19[5-9]\d|20[0-4]\d)\b/g;
   const matches = text.match(yearPattern);
