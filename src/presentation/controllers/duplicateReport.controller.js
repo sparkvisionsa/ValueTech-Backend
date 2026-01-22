@@ -203,6 +203,7 @@ exports.getLatestForUser = async (req, res) => {
 exports.listReportsForUser = async (req, res) => {
   try {
     if (!req.user) {
+      // commit
       return res.status(401).json({ success: false, message: "Unauthorized" });
     }
     const query = buildUserReportQuery(req.user);
