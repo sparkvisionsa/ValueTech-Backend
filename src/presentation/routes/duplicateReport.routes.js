@@ -14,6 +14,11 @@ router.patch("/:id/assets/:index", duplicateReportController.updateDuplicateRepo
 router.delete("/:id/assets/:index", duplicateReportController.deleteDuplicateReportAsset);
 router.post(
   "/",
+  (req, res, next) => {
+    console.log("📥 API HIT:Duplicate Reports");
+    next();
+  },
+  authMiddleware,
   upload.fields([
     { name: "excel", maxCount: 1 },
     { name: "pdf", maxCount: 1 },
