@@ -7,9 +7,10 @@ const profileUpload = require('../../utils/profileUpload.multer');
 
 const router = express.Router();
 
-router.post('/register', userController.register);
+router.post('/register', optionalAuth, userController.register);
 router.post('/login', userController.login);
 
+router.post('/guest', optionalAuth, userController.guestBootstrap);
 router.post('/bootstrap', optionalAuth, userController.taqeemBootstrap);
 router.post('/new-bootstrap', userController.newTaqeemBootstrap);
 

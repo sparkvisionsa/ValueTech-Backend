@@ -63,70 +63,90 @@ exports.register = async (req, res) => {
             return res.status(400).json({ message: 'Company name and head are required for company accounts.' });
         }
 
-        // Check if user with this phone already exists
-        const existingUserByPhone = await User.findOne({ phone });
-        if (existingUserByPhone) {
+        const trimmedPhone = String(phone).trim();
+        const trimmedTaqeem = taqeemUsername && taqeemUsername.trim() !== ''
+            ? taqeemUsername.trim()
+            : '';
+
+        const authUserId = req.userId;
+        const authUser = authUserId ? await User.findById(authUserId) : null;
+
+        const existingUserByPhone = await User.findOne({ phone: trimmedPhone });
+        if (existingUserByPhone && (!authUser || existingUserByPhone._id.toString() !== authUser._id.toString())) {
             return res.status(409).json({ message: 'User with this phone number already exists.' });
         }
 
-        // If taqeemUsername is provided, look for existing user with that username
         let existingUserByTaqeem = null;
-        if (taqeemUsername && taqeemUsername.trim() !== '') {
-            existingUserByTaqeem = await User.findOne({ 'taqeem.username': taqeemUsername.trim() });
+        if (trimmedTaqeem) {
+            existingUserByTaqeem = await User.findOne({ 'taqeem.username': trimmedTaqeem });
+        }
+
+        if (authUser && authUser.phone) {
+            return res.status(409).json({ message: 'User with this phone number already exists.' });
+        }
+
+        if (authUser && existingUserByTaqeem && existingUserByTaqeem._id.toString() !== authUser._id.toString()) {
+            return res.status(409).json({
+                message: 'User with this Taqeem account already exists.'
+            });
         }
 
         const hashedPassword = await bcrypt.hash(password, 10);
         let companyDoc = null;
         let user;
+        let linkedExisting = false;
 
-        // If user exists with taqeem username, update that user instead of creating new
-        if (existingUserByTaqeem) {
+        const applyRegistration = async (target) => {
+            target.phone = trimmedPhone;
+            target.password = hashedPassword;
+            target.type = type;
+
+            if (type === 'company') {
+                target.role = 'company-head';
+                target.headName = companyHead;
+                target.companyName = companyName;
+
+                companyDoc = new Company({
+                    name: companyName,
+                    headName: companyHead,
+                    phone: trimmedPhone,
+                    headUser: target._id
+                });
+                await companyDoc.save();
+
+                target.company = companyDoc._id;
+            } else {
+                target.role = 'individual';
+                target.company = null;
+                target.companyName = undefined;
+                target.headName = undefined;
+            }
+
+            if (trimmedTaqeem) {
+                target.taqeem = target.taqeem || {};
+                target.taqeem.username = trimmedTaqeem;
+            }
+
+            await target.save();
+            return target;
+        };
+
+        if (authUser && !authUser.phone) {
+            user = await applyRegistration(authUser);
+            linkedExisting = true;
+        } else if (existingUserByTaqeem) {
             user = existingUserByTaqeem;
-
-            const alreadyRegistered = user.phone
-
-            if (alreadyRegistered) {
+            if (user.phone) {
                 return res.status(409).json({
                     message: 'User with this Taqeem account already exists.'
                 });
             }
-
-            // Update user fields
-            user.phone = phone;
-            user.password = hashedPassword;
-            user.type = type;
-
-            // Update role based on type
-            if (type === 'company') {
-                user.role = 'company-head';
-                user.headName = companyHead;
-                user.companyName = companyName;
-
-                // Create company if user is registering as company
-                companyDoc = new Company({
-                    name: companyName,
-                    headName: companyHead,
-                    phone,
-                    headUser: user._id
-                });
-                await companyDoc.save();
-
-                user.company = companyDoc._id;
-            } else {
-                user.role = 'individual';
-                // Clear company-related fields if switching from company to individual
-                user.company = null;
-                user.companyName = undefined;
-                user.headName = undefined;
-            }
-
-            await user.save();
+            user = await applyRegistration(user);
+            linkedExisting = true;
         } else {
-            // Create new user (original logic)
             if (type === 'company') {
-                // Create the head user first so we can reference it from the company doc
                 user = new User({
-                    phone,
+                    phone: trimmedPhone,
                     password: hashedPassword,
                     type: 'company',
                     role: 'company-head',
@@ -138,7 +158,7 @@ exports.register = async (req, res) => {
                 companyDoc = new Company({
                     name: companyName,
                     headName: companyHead,
-                    phone,
+                    phone: trimmedPhone,
                     headUser: user._id
                 });
                 await companyDoc.save();
@@ -147,7 +167,7 @@ exports.register = async (req, res) => {
                 await user.save();
             } else {
                 user = new User({
-                    phone,
+                    phone: trimmedPhone,
                     password: hashedPassword,
                     type: 'individual',
                     role: 'individual'
@@ -155,13 +175,9 @@ exports.register = async (req, res) => {
                 await user.save();
             }
 
-            // If taqeemUsername was provided but no user found, you might want to create taqeem field
-            // or handle it differently based on your requirements
-            // For now, we'll just store it if provided
-            if (taqeemUsername && taqeemUsername.trim() !== '') {
+            if (trimmedTaqeem) {
                 user.taqeem = user.taqeem || {};
-                user.taqeem.username = taqeemUsername.trim();
-                // Note: taqeem.password is required in schema, you might need to handle this
+                user.taqeem.username = trimmedTaqeem;
                 await user.save();
             }
         }
@@ -185,7 +201,7 @@ exports.register = async (req, res) => {
         });
 
         res.status(201).json({
-            message: existingUserByTaqeem ? 'User account linked and updated successfully.' : 'User registered successfully.',
+            message: linkedExisting ? 'User account linked and updated successfully.' : 'User registered successfully.',
             token: accessToken,
             refreshToken,
             user: buildUserPayload(user)
@@ -234,6 +250,49 @@ exports.login = async (req, res) => {
         });
     } catch (err) {
         console.error(err);
+        return res.status(500).json({ message: 'Server error', error: err.message });
+    }
+};
+
+exports.guestBootstrap = async (req, res) => {
+    try {
+        let user = null;
+        if (req.userId) {
+            user = await User.findById(req.userId);
+        }
+
+        if (!user) {
+            user = await User.create({});
+        }
+
+        const isGuest = !user.phone;
+        const payload = {
+            id: user._id.toString(),
+            phone: user.phone || null,
+            type: user.type || 'individual',
+            role: user.role || 'user',
+            company: user.company || null,
+            permissions: user.permissions || [],
+            guest: isGuest
+        };
+
+        const accessToken = generateAccessToken(payload);
+        const refreshToken = generateRefreshToken(payload);
+
+        res.cookie('refreshToken', refreshToken, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'Strict',
+            maxAge: 7 * 24 * 60 * 60 * 1000
+        });
+
+        return res.json({
+            status: req.userId ? 'GUEST_REFRESHED' : 'GUEST_CREATED',
+            token: accessToken,
+            refreshToken,
+            userId: user._id
+        });
+    } catch (err) {
         return res.status(500).json({ message: 'Server error', error: err.message });
     }
 };

@@ -22,6 +22,21 @@ const getReportsByUserIdUC = async ({
             query.status = filters.status;
         }
 
+        if (filters.report_status) {
+            query.report_status = filters.report_status;
+        }
+
+        const excludeRaw = filters.excludeReportStatus || filters.exclude_report_status;
+        if (excludeRaw && !query.report_status) {
+            const excludeList = String(excludeRaw)
+                .split(',')
+                .map((value) => value.trim())
+                .filter(Boolean);
+            if (excludeList.length > 0) {
+                query.report_status = { $nin: excludeList };
+            }
+        }
+
         if (filters.reportType) {
             query.reportType = filters.reportType;
         }

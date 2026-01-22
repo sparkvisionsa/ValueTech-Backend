@@ -23,7 +23,8 @@ const createReportUC = async (report_id, reportData, userId) => {
                 'title', 'purpose_id', 'value_premise_id', 'report_type',
                 'valued_at', 'submitted_at', 'assumptions', 'special_assumptions',
                 'value', 'valuation_currency', 'report_asset_file', 'client_name',
-                'telephone', 'email', 'has_other_users', 'report_users'
+                'telephone', 'email', 'has_other_users', 'report_users',
+                'report_status'
             ];
 
             basicFields.forEach(field => {

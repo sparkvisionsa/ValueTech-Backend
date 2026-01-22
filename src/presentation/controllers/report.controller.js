@@ -262,7 +262,7 @@ const reportController = {
     },
     async createReportWithCommonFields(req, res) {
         try {
-            const { reportId, reportData, commonFields = {} } = req.body;
+            const { reportId, reportData, commonFields = {}, reportStatus, storeOnly } = req.body;
             const userId = req.userId;
 
             if (!reportId || !reportId.trim()) {
@@ -272,7 +272,13 @@ const reportController = {
                 });
             }
 
-            if (!Array.isArray(reportData) || reportData.length === 0) {
+            const rawRows = Array.isArray(reportData)
+                ? reportData
+                : Array.isArray(reportData?.asset_data)
+                    ? reportData.asset_data
+                    : [];
+
+            if (!Array.isArray(rawRows) || rawRows.length === 0) {
                 return res.status(400).json({
                     success: false,
                     message: 'Report data is required and must be a non-empty array'
@@ -281,7 +287,7 @@ const reportController = {
 
             const { region, city, inspectionDate, ownerName } = commonFields;
 
-            const enhancedReportData = reportData.map(entry => {
+            const enhancedReportData = rawRows.map(entry => {
                 const enhancedEntry = { ...entry };
 
                 if (inspectionDate) enhancedEntry.inspection_date = inspectionDate;
@@ -305,9 +311,15 @@ const reportController = {
                 return enhancedEntry;
             });
 
+            const storeOnlyFlag = storeOnly === true || storeOnly === 'true';
+            const normalizedStatus = (reportStatus || (storeOnlyFlag ? 'DRAFT' : '')).toString().trim();
+            const payload = normalizedStatus
+                ? { asset_data: enhancedReportData, report_status: normalizedStatus }
+                : enhancedReportData;
+
             const { success, message, data } = await createReportUC(
                 reportId.trim(),
-                enhancedReportData,
+                payload,
                 userId   // ONLY user id
             );
 
