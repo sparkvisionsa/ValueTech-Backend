@@ -19,6 +19,8 @@ exports.list = async (req, res) => {
       author,
       status,
       hasPhone,
+      priceText,
+      priceValue,
       minComments,
       maxComments,
       fromId,
@@ -36,6 +38,9 @@ exports.list = async (req, res) => {
     if (status) filter.status = status; // ACTIVE/REMOVED
     if (city) filter.city = new RegExp(`^${escapeRegex(city)}$`, "i");
     if (author) filter.author = new RegExp(escapeRegex(author), "i");
+    if (priceValue) filter.priceValue = new RegExp(escapeRegex(priceValue), "i");
+    if (priceText) filter.priceText = new RegExp(escapeRegex(priceText), "i");
+ 
 
     if (fromId || toId) {
       filter.adId = {};
@@ -94,6 +99,8 @@ exports.list = async (req, res) => {
       "title",
       "city",
       "author",
+      "priceText",
+      "priceValue",
       "status",
       "firstSeenAt",
       "lastSeenAt",
@@ -177,6 +184,86 @@ exports.getComments = async (req, res) => {
     });
   } catch (err) {
     console.error("harajAds.getComments error:", err);
+    return res.status(500).json({ success: false, message: err.message || "Server error" });
+  }
+};
+
+// GET /api/haraj-ads/search/by-title
+// Query: title, page, limit, sort, status
+exports.searchByTitle = async (req, res) => {
+  try {
+    const {
+      title = "",
+      status,
+      sort = "newest",
+    } = req.query;
+
+    const page = Math.max(1, toInt(req.query.page, 1));
+    const limit = Math.min(100, Math.max(1, toInt(req.query.limit, 20)));
+    const skip = (page - 1) * limit;
+
+    if (!title || !title.trim()) {
+      return res.status(400).json({ success: false, message: "Title parameter is required" });
+    }
+
+    const filter = {
+      title: new RegExp(escapeRegex(title.trim()), "i"),
+    };
+
+    if (status) filter.status = status;
+
+    const sortMap = {
+      newest: { createdAt: -1 },
+      oldest: { createdAt: 1 },
+      adIdAsc: { adId: 1 },
+      adIdDesc: { adId: -1 },
+    };
+
+    const sortObj = sortMap[sort] || sortMap.newest;
+
+    const [items, total] = await Promise.all([
+      HarajAd.find(filter)
+        .select([
+          "adId",
+          "url",
+          "title",
+          "city",
+          "author",
+          "priceText",
+          "priceValue",
+          "status",
+          "firstSeenAt",
+          "lastSeenAt",
+          "lastCommentsCheckAt",
+          "createdAt",
+          "updatedAt",
+          "contact.phone",
+          "comments",
+        ])
+        .sort(sortObj)
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      HarajAd.countDocuments(filter),
+    ]);
+
+    const mapped = items.map((it) => ({
+      ...it,
+      commentsCount: it.comments?.length || 0,
+      commentsPreview: (it.comments || []).slice(-3),
+      comments: undefined,
+    }));
+
+    return res.json({
+      success: true,
+      page,
+      limit,
+      total,
+      pages: Math.ceil(total / limit),
+      items: mapped,
+    });
+  } catch (err) {
+    console.error("harajAds.searchByTitle error:", err);
     return res.status(500).json({ success: false, message: err.message || "Server error" });
   }
 };

@@ -39,6 +39,8 @@ const HarajAdSchema = new mongoose.Schema(
     breadcrumbs: [BreadcrumbSchema],
     title: { type: String, index: true },
     city: { type: String, index: true },
+    priceText: { type: String, index: true },
+    priceValue: { type: Number, index: true },
     postedTimeText: String,
     author: { type: String, index: true },
     authorHref: String,
