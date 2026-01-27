@@ -37,6 +37,9 @@ const HarajAdSchema = new mongoose.Schema(
     url: { type: String, index: true },
 
     breadcrumbs: [BreadcrumbSchema],
+    breadcrumbKey: { type: String, index: true },
+    breadcrumbNames: [{ type: String }],
+
     title: { type: String, index: true },
     city: { type: String, index: true },
     priceText: { type: String, index: true },
@@ -60,6 +63,9 @@ const HarajAdSchema = new mongoose.Schema(
   },
   { timestamps: true, collection: "harajAds" }
 );
+HarajAdSchema.index({ status: 1, breadcrumbKey: 1 });
+HarajAdSchema.index({ breadcrumbNames: 1 });
+HarajAdSchema.index({ status: 1, createdAt: -1 });
 
 // Text search (fast + simple)
 HarajAdSchema.index({

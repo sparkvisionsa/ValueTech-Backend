@@ -18,6 +18,7 @@ exports.list = async (req, res) => {
       city,
       author,
       status,
+      description,
       hasPhone,
       priceText,
       priceValue,
@@ -25,6 +26,8 @@ exports.list = async (req, res) => {
       maxComments,
       fromId,
       toId,
+      path,
+      crumb,
       sort = "newest",
     } = req.query;
 
@@ -40,6 +43,21 @@ exports.list = async (req, res) => {
     if (author) filter.author = new RegExp(escapeRegex(author), "i");
     if (priceValue) filter.priceValue = new RegExp(escapeRegex(priceValue), "i");
     if (priceText) filter.priceText = new RegExp(escapeRegex(priceText), "i");
+    // ✅ Breadcrumb path filter: "حراج السيارات/مرسيدس/C"
+const hasPath = path && String(path).trim();
+const hasCrumb = crumb && String(crumb).trim();
+
+// ✅ If path exists, use strict prefix drill-down
+if (hasPath) {
+  const p = String(path).trim();
+  filter.breadcrumbKey = new RegExp(`^${escapeRegex(p)}(\\/|$)`);
+}
+// ✅ Else if crumb exists, match anywhere in breadcrumbNames
+else if (hasCrumb) {
+  filter.breadcrumbNames = String(crumb).trim();
+}
+
+
  
 
     if (fromId || toId) {
@@ -100,6 +118,7 @@ exports.list = async (req, res) => {
       "city",
       "author",
       "priceText",
+      "description",
       "priceValue",
       "status",
       "firstSeenAt",
@@ -267,3 +286,50 @@ exports.searchByTitle = async (req, res) => {
     return res.status(500).json({ success: false, message: err.message || "Server error" });
   }
 };
+
+
+
+// GET /api/haraj-ads/filters/options
+// Query: path (optional), status (optional), limit (optional)
+exports.getFilterOptions = async (req, res) => {
+  try {
+    const path = (req.query.path || "").trim(); // "حراج السيارات/مرسيدس"
+    const status = (req.query.status || "ACTIVE").trim();
+    const limit = Math.min(500, Math.max(1, toInt(req.query.limit, 200)));
+
+    const segments = path
+      ? path.split("/").map((s) => s.trim()).filter(Boolean)
+      : [];
+
+    const depth = segments.length; // next index in breadcrumbNames
+
+    const match = {};
+    if (status) match.status = status;
+
+    if (segments.length) {
+      match.breadcrumbKey = new RegExp(`^${escapeRegex(segments.join("/"))}(\\/|$)`);
+    }
+
+    const pipeline = [
+      { $match: match },
+      { $project: { next: { $arrayElemAt: ["$breadcrumbNames", depth] } } },
+      { $match: { next: { $type: "string", $ne: "" } } },
+      { $group: { _id: "$next", count: { $sum: 1 } } },
+      { $sort: { count: -1, _id: 1 } },
+      { $limit: limit },
+    ];
+
+    const rows = await HarajAd.aggregate(pipeline);
+
+    return res.json({
+      success: true,
+      path: segments,
+      depth,
+      options: rows.map((r) => ({ value: r._id, count: r.count })),
+    });
+  } catch (err) {
+    console.error("harajAds.getFilterOptions error:", err);
+    return res.status(500).json({ success: false, message: err.message || "Server error" });
+  }
+};
+
