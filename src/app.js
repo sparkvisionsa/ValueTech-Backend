@@ -5,6 +5,7 @@ const cookieParser = require('cookie-parser');
 const routes = require('./presentation/routes/index.routes');
 const adsRoutes = require("./presentation/routes/ads.route");
 const harajAdsRoutes = require("./presentation/routes/harajAds.routes");
+const harajScrapeRoutes = require("./presentation/routes/harajScrape.routes");
 
 
 
@@ -22,6 +23,7 @@ app.use('/uploads', express.static('uploads'));
 app.use('/api', routes);
 app.use("/api/ads", adsRoutes);
 app.use("/api/haraj-ads", harajAdsRoutes);
+app.use("/api/haraj-scrape", harajScrapeRoutes);
 
 
 // app.use("/api/reports", allReportRoutes);
