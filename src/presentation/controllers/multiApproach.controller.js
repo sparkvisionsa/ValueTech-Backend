@@ -203,6 +203,32 @@ exports.processMultiApproachBatch = async (req, res) => {
 
     const excelFiles = req.files.excels;
     const pdfFiles = req.files.pdfs || [];
+    let batchValuers = [];
+
+    if (req.body?.valuers) {
+      let parsedValuers = req.body.valuers;
+      if (typeof parsedValuers === "string") {
+        try {
+          parsedValuers = JSON.parse(parsedValuers);
+        } catch (err) {
+          throw badRequest("Valuers must be valid JSON.");
+        }
+      }
+      const normalized = normalizeValuers(parsedValuers);
+      if (normalized.length) {
+        const totalPct = normalized.reduce(
+          (sum, v) => sum + Number(v.contribution_percentage || 0),
+          0
+        );
+        const rounded = Math.round(totalPct);
+        if (rounded !== 100) {
+          throw badRequest(
+            `Valuers contribution must sum to 100%. Currently ${totalPct}%.`
+          );
+        }
+      }
+      batchValuers = normalized;
+    }
 
     // 1) Build maps by basename (without extension)
     const excelMap = new Map(); // basename -> { file, pdfs: [] }
@@ -538,6 +564,8 @@ exports.processMultiApproachBatch = async (req, res) => {
 
         region,
         city,
+
+        valuers: batchValuers,
 
         final_value: report_total_value,
         assets_total_value,
