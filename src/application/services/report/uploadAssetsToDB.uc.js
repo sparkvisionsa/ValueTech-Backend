@@ -1,8 +1,12 @@
 const Report = require("../../../infrastructure/models/report");
 
-const createReportUC = async (report_id, reportData, userId) => {
+const createReportUC = async (report_id, reportData, userId, companyOfficeId = null) => {
     try {
-        const existingReport = await Report.findOne({ report_id });
+        const query = { report_id };
+        if (companyOfficeId) {
+            query.company_office_id = String(companyOfficeId).trim();
+        }
+        const existingReport = await Report.findOne(query);
         if (existingReport) {
             throw new Error('Report already exists');
         }
@@ -14,6 +18,10 @@ const createReportUC = async (report_id, reportData, userId) => {
             startSubmitTime: new Date(),
             user_id: userId || null
         };
+
+        if (companyOfficeId) {
+            filteredData.company_office_id = String(companyOfficeId).trim();
+        }
 
         if (Array.isArray(reportData)) {
             filteredData.asset_data = processAssetData(reportData);

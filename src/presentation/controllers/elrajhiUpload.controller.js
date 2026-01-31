@@ -5,6 +5,7 @@ const fs = require("fs");
 const mongoose = require("mongoose");
 
 const UrgentReport = require("../../infrastructure/models/UrgentReport");
+const { extractCompanyOfficeId } = require("../utils/companyOffice");
 
 // ---------- helpers ----------
 
@@ -377,6 +378,7 @@ exports.processElrajhiExcel = async (req, res) => {
       userContext.username ||
       "";
     const userId = userContext.id || userContext._id || null;
+    const companyOfficeId = extractCompanyOfficeId(req);
 
     // if (!userPhone) {
     //   return res.status(400).json({
@@ -579,6 +581,7 @@ exports.processElrajhiExcel = async (req, res) => {
         user_id: userId,
         user_phone: userPhone,
         company: userContext.company || null,
+        company_office_id: companyOfficeId,
 
         // Report-level (from Report Info)
         title: report.title,
@@ -668,7 +671,13 @@ exports.exportElrajhiBatch = async (req, res) => {
       });
     }
 
-    const reports = await UrgentReport.find({ batch_id: batchId })
+    const companyOfficeId = extractCompanyOfficeId(req);
+    const baseQuery = { batch_id: batchId };
+    if (companyOfficeId) {
+      baseQuery.company_office_id = companyOfficeId;
+    }
+
+    const reports = await UrgentReport.find(baseQuery)
       .sort({ asset_id: 1, createdAt: 1 })
       .lean();
 
@@ -719,7 +728,13 @@ exports.exportElrajhiBatch = async (req, res) => {
 // List batches with counts to power the checker tab
 exports.listElrajhiBatches = async (req, res) => {
   try {
+    const companyOfficeId = extractCompanyOfficeId(req);
+    const matchStage = companyOfficeId
+      ? [{ $match: { company_office_id: companyOfficeId } }]
+      : [];
+
     const batches = await UrgentReport.aggregate([
+      ...matchStage,
       {
         $group: {
           _id: "$batch_id",
@@ -795,7 +810,13 @@ exports.getElrajhiBatchReports = async (req, res) => {
       });
     }
 
-    const reports = await UrgentReport.find({ batch_id: batchId })
+    const companyOfficeId = extractCompanyOfficeId(req);
+    const baseQuery = { batch_id: batchId };
+    if (companyOfficeId) {
+      baseQuery.company_office_id = companyOfficeId;
+    }
+
+    const reports = await UrgentReport.find(baseQuery)
       .sort({ createdAt: 1 })
       .lean();
 
@@ -857,9 +878,13 @@ exports.updateElrajhiReport = async (req, res) => {
     }
 
     const isMongoId = mongoose.Types.ObjectId.isValid(reportId);
-    const query = isMongoId
+    const companyOfficeId = extractCompanyOfficeId(req);
+    const baseQuery = isMongoId
       ? { $or: [{ report_id: reportId }, { _id: reportId }] }
       : { report_id: reportId };
+    const query = companyOfficeId
+      ? { ...baseQuery, company_office_id: companyOfficeId }
+      : baseQuery;
 
     const report = await UrgentReport.findOne(query);
 
@@ -967,9 +992,13 @@ exports.getReportById = async (req, res) => {
     }
 
     const isMongoId = mongoose.Types.ObjectId.isValid(reportId);
-    const query = isMongoId
+    const companyOfficeId = extractCompanyOfficeId(req);
+    const baseQuery = isMongoId
       ? { $or: [{ report_id: reportId }, { _id: reportId }] }
       : { report_id: reportId };
+    const query = companyOfficeId
+      ? { ...baseQuery, company_office_id: companyOfficeId }
+      : baseQuery;
 
     const report = await UrgentReport.findOne(query).lean();
 

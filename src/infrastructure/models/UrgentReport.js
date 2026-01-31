@@ -54,6 +54,7 @@ const urgentSchema = new mongoose.Schema({
   user_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   user_phone: { type: String },
   company: { type: mongoose.Schema.Types.ObjectId, ref: 'Company', default: null },
+  company_office_id: { type: String, default: null, index: true },
   report_id: { type: String },
   source_excel_name: { type: String },
   title: String,

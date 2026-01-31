@@ -6,6 +6,7 @@ const MultiApproachReport = require("../../infrastructure/models/MultiApproachRe
 const SubmitReportsQuickly = require("../../infrastructure/models/SubmitReportsQuickly.js");
 const UrgentReport = require("../../infrastructure/models/UrgentReport.js");
 const Reports = require("../../infrastructure/models/report.js");
+const { extractCompanyOfficeId } = require("../utils/companyOffice");
 
 function normalizeReport(doc, source) {
   return {
@@ -93,6 +94,8 @@ async function searchReports(req, res) {
       return res.status(400).json({ status: "failed", error: "q is required" });
     }
 
+    const companyOfficeId = extractCompanyOfficeId(req);
+
     const limit = Math.min(Number(req.query.limit) || 20, 100);
     const page = Math.max(Number(req.query.page) || 1, 1);
     const skip = (page - 1) * limit;
@@ -117,11 +120,16 @@ async function searchReports(req, res) {
 
     const results = await Promise.all(
       sources.map(async (s) => {
+        const match = {
+          user_id: userObjectId,
+          $or: or,
+        };
+        if (companyOfficeId) {
+          match.company_office_id = companyOfficeId;
+        }
+
         const docs = await s.model
-          .find({
-            user_id: userObjectId,
-            $or: or,
-          })
+          .find(match)
           .sort({ createdAt: -1 })
           .limit(perSourceLimit)
           .lean()
@@ -168,6 +176,7 @@ async function listMyReports(req, res) {
     }
 
     const userObjectId = new mongoose.Types.ObjectId(userIdStr);
+    const companyOfficeId = extractCompanyOfficeId(req);
 
     const limit = Math.min(Number(req.query.limit) || 20, 100);
     const page = Math.max(Number(req.query.page) || 1, 1);
@@ -184,6 +193,9 @@ async function listMyReports(req, res) {
         { userId: userIdStr },
       ],
     };
+    const baseMatch = companyOfficeId
+      ? { $and: [userMatch, { company_office_id: companyOfficeId }] }
+      : userMatch;
 
     // ✅ collection names that $unionWith will use
    const COLS = [
@@ -206,12 +218,12 @@ async function listMyReports(req, res) {
     await Promise.all(
       COLS.map(async (c) => {
         try {
-          const n = await c.model.countDocuments(userMatch);
-          counts[c.label] = n;
-        } catch (e) {
-          counts[c.label] = `count_failed: ${e.message}`;
-        }
-      })
+        const n = await c.model.countDocuments(baseMatch);
+        counts[c.label] = n;
+      } catch (e) {
+        counts[c.label] = `count_failed: ${e.message}`;
+      }
+    })
     );
     console.log("[REPORT_LOOKUP] counts per collection:", counts);
 
@@ -226,6 +238,7 @@ async function listMyReports(req, res) {
         user_id: 1,
         userId: 1,
         company: 1,
+        company_office_id: 1,
         createdAt: 1,
         updatedAt: 1,
 
@@ -241,7 +254,7 @@ async function listMyReports(req, res) {
     const makeUnion = (label, collName) => ({
       $unionWith: {
         coll: collName,
-        pipeline: [{ $match: userMatch }, makeProject(label)],
+        pipeline: [{ $match: baseMatch }, makeProject(label)],
       },
     });
 
@@ -249,7 +262,7 @@ async function listMyReports(req, res) {
 
     const pipeline = [
       // base is UrgentReport because we run aggregate on UrgentReport model
-      { $match: userMatch },
+      { $match: baseMatch },
       makeProject(first.label),
 
       // union others

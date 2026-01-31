@@ -5,6 +5,7 @@ const ElrajhiReport = require("../../infrastructure/models/ElrajhiReport");
 const UrgentReport = require("../../infrastructure/models/UrgentReport");
 const path = require("path");
 const { createNotification } = require("../../application/services/notification/notification.service");
+const { extractCompanyOfficeId } = require("../utils/companyOffice");
 
 
 const normalizeKey = (value = "") =>
@@ -61,7 +62,7 @@ const mapDocToForm = (doc) => ({
   report_users: doc.report_users || [],
 });
 
-const buildUserFilter = (user = {}) => {
+const buildUserFilter = (user = {}, options = {}) => {
   const clauses = [];
   if (user.id) clauses.push({ user_id: user.id });
   if (user.phone) {
@@ -69,7 +70,12 @@ const buildUserFilter = (user = {}) => {
     clauses.push({ telephone: user.phone });
   }
   if (user.company) clauses.push({ company: user.company });
-  return clauses.length ? { $or: clauses } : {};
+  const filter = clauses.length ? { $or: clauses } : {};
+  const officeId = options.companyOfficeId;
+  if (officeId) {
+    filter.company_office_id = officeId;
+  }
+  return filter;
 };
 
 const normalizeRowKeys = (row) => {
@@ -146,8 +152,8 @@ const sanitizeValuers = (valuers = []) => {
     .filter((valuer) => valuer.valuer_name);
 };
 
-const buildUserReportQuery = (user, reportId) => {
-  const filter = buildUserFilter(user || {});
+const buildUserReportQuery = (user, reportId, options = {}) => {
+  const filter = buildUserFilter(user || {}, options);
   if (!Object.keys(filter).length) return null;
   if (reportId) {
     return { _id: reportId, ...filter };
@@ -160,7 +166,8 @@ exports.getLatestForUser = async (req, res) => {
     if (!req.user) {
       return res.status(401).json({ success: false, message: "Unauthorized" });
     }
-    const filter = buildUserFilter(req.user || {});
+    const companyOfficeId = extractCompanyOfficeId(req);
+    const filter = buildUserFilter(req.user || {}, { companyOfficeId });
 
     const candidates = [];
     const [regular, elrajhi, urgent] = await Promise.all([
@@ -233,7 +240,8 @@ exports.listReportsForUser = async (req, res) => {
       return res.status(401).json({ success: false, message: "Unauthorized" });
     }
 
-    const baseQuery = buildUserReportQuery(req.user);
+    const companyOfficeId = extractCompanyOfficeId(req);
+    const baseQuery = buildUserReportQuery(req.user, null, { companyOfficeId });
     if (!baseQuery) {
       return res.status(401).json({ success: false, message: "User context missing." });
     }
@@ -310,7 +318,8 @@ exports.updateDuplicateReport = async (req, res) => {
       return res.status(401).json({ success: false, message: "Unauthorized" });
     }
     const reportId = req.params.id;
-    const query = buildUserReportQuery(req.user, reportId);
+    const companyOfficeId = extractCompanyOfficeId(req);
+    const query = buildUserReportQuery(req.user, reportId, { companyOfficeId });
     if (!query) {
       return res.status(401).json({ success: false, message: "User context missing." });
     }
@@ -375,7 +384,8 @@ exports.deleteDuplicateReport = async (req, res) => {
       return res.status(401).json({ success: false, message: "Unauthorized" });
     }
     const reportId = req.params.id;
-    const query = buildUserReportQuery(req.user, reportId);
+    const companyOfficeId = extractCompanyOfficeId(req);
+    const query = buildUserReportQuery(req.user, reportId, { companyOfficeId });
     if (!query) {
       return res.status(401).json({ success: false, message: "User context missing." });
     }
@@ -420,7 +430,8 @@ exports.updateDuplicateReportAsset = async (req, res) => {
       return res.status(400).json({ success: false, message: "Invalid asset index." });
     }
 
-    const query = buildUserReportQuery(req.user, reportId);
+    const companyOfficeId = extractCompanyOfficeId(req);
+    const query = buildUserReportQuery(req.user, reportId, { companyOfficeId });
     if (!query) {
       return res.status(401).json({ success: false, message: "User context missing." });
     }
@@ -466,7 +477,8 @@ exports.deleteDuplicateReportAsset = async (req, res) => {
       return res.status(400).json({ success: false, message: "Invalid asset index." });
     }
 
-    const query = buildUserReportQuery(req.user, reportId);
+    const companyOfficeId = extractCompanyOfficeId(req);
+    const query = buildUserReportQuery(req.user, reportId, { companyOfficeId });
     if (!query) {
       return res.status(401).json({ success: false, message: "User context missing." });
     }
@@ -496,6 +508,7 @@ exports.createDuplicateReport = async (req, res) => {
     const fs = require("fs");
 
     const user = req.user || {};
+    const companyOfficeId = extractCompanyOfficeId(req);
     if (!user.id && !user.phone) {
       return res
         .status(401)
@@ -571,6 +584,7 @@ exports.createDuplicateReport = async (req, res) => {
       user_id: user.id,
       user_phone: user.phone,
       company: user.company || null,
+      company_office_id: companyOfficeId,
 
       report_id: payload.report_id || payload.reportId || "",
       title: payload.title || "",

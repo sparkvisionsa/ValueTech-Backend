@@ -6,6 +6,7 @@ const dummyPdfPath = path.resolve("uploads/static/dummy_placeholder.pdf");
 
 const MultiApproachReport = require("../../infrastructure/models/MultiApproachReport");
 const { createNotification } = require("../../application/services/notification/notification.service");
+const { extractCompanyOfficeId } = require("../utils/companyOffice");
 
 // ------------ helpers ------------
 
@@ -229,6 +230,8 @@ exports.processMultiApproachBatch = async (req, res) => {
       }
       batchValuers = normalized;
     }
+
+    const companyOfficeId = extractCompanyOfficeId(req);
 
     // 1) Build maps by basename (without extension)
     const excelMap = new Map(); // basename -> { file, pdfs: [] }
@@ -542,6 +545,8 @@ exports.processMultiApproachBatch = async (req, res) => {
       docsToInsert.push({
         batchId,
         user_id: req.user?.id,
+        company: req.user?.company || null,
+        company_office_id: companyOfficeId,
         excel_name: file.originalname,
         excel_basename: baseName,
         owner_name,
@@ -764,9 +769,12 @@ exports.createManualMultiApproachReport = async (req, res) => {
     const city = reportInfo.city || "";
     const owner_name = reportInfo.owner_name || reportInfo.client_name || "";
 
+    const companyOfficeId = extractCompanyOfficeId(req);
     const doc = {
       batchId,
       user_id: req.user?.id,
+      company: req.user?.company || null,
+      company_office_id: companyOfficeId,
       excel_name,
       excel_basename,
       title: manualTitle,
@@ -841,7 +849,9 @@ exports.listMultiApproachReports = async (req, res) => {
     }
 
     const limit = Math.min(Number(req.query.limit) || 200, 500);
-    const reports = await MultiApproachReport.find({})
+    const companyOfficeId = extractCompanyOfficeId(req);
+    const query = companyOfficeId ? { company_office_id: companyOfficeId } : {};
+    const reports = await MultiApproachReport.find(query)
       .sort({ createdAt: -1, _id: -1 })
       .limit(limit);
 
@@ -873,6 +883,10 @@ exports.getMultiApproachReportsByUserId = async (req, res) => {
 
     // Build query based on filters
     let query = { user_id };
+    const companyOfficeId = extractCompanyOfficeId(req);
+    if (companyOfficeId) {
+      query.company_office_id = companyOfficeId;
+    }
 
     // Add status filter if provided
     if (status && status !== 'all') {

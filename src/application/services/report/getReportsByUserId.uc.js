@@ -26,6 +26,15 @@ const getReportsByUserIdUC = async ({
             query.report_status = filters.report_status;
         }
 
+        const companyOfficeId =
+            filters.companyOfficeId ||
+            filters.company_office_id ||
+            filters.officeId ||
+            filters.office_id;
+        if (companyOfficeId) {
+            query.company_office_id = String(companyOfficeId).trim();
+        }
+
         const excludeRaw = filters.excludeReportStatus || filters.exclude_report_status;
         if (excludeRaw && !query.report_status) {
             const excludeList = String(excludeRaw)

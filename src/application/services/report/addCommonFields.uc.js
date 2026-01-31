@@ -1,9 +1,31 @@
 const Report = require('../../../infrastructure/models/report');
 
-const addCommonFields = async (report_id, region, city, inspection_date, owner_name) => {
+const findReportByCompany = async (report_id, companyOfficeId = null) => {
+    const baseQuery = { report_id };
+    const officeId = companyOfficeId ? String(companyOfficeId).trim() : "";
+    if (!officeId) {
+        return Report.findOne(baseQuery);
+    }
+
+    const scoped = await Report.findOne({ ...baseQuery, company_office_id: officeId });
+    if (scoped) {
+        return scoped;
+    }
+
+    return Report.findOne({
+        ...baseQuery,
+        $or: [
+            { company_office_id: { $exists: false } },
+            { company_office_id: null },
+            { company_office_id: "" }
+        ]
+    });
+};
+
+const addCommonFields = async (report_id, region, city, inspection_date, owner_name, companyOfficeId = null) => {
     try {
         // Step 1: Find existing record with report_id
-        const existingReport = await Report.findOne({ report_id });
+        const existingReport = await findReportByCompany(report_id, companyOfficeId);
 
         if (!existingReport) {
             throw new Error(`Report with ID ${report_id} not found in database`);

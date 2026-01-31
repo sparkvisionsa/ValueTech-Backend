@@ -5,6 +5,7 @@ const dummyPdfPath = path.resolve("uploads/static/dummy_placeholder.pdf");
 
 const SubmitReportsQuickly = require("../../infrastructure/models/SubmitReportsQuickly");
 const { createNotification } = require("../../application/services/notification/notification.service");
+const { extractCompanyOfficeId } = require("../utils/companyOffice");
 
 // ------------ helpers ------------
 
@@ -241,6 +242,7 @@ exports.processSubmitReportsQuicklyBatch = async (req, res) => {
     const pdfFiles = req.files.pdfs || [];
     const skipPdfUpload = req.body.skipPdfUpload === 'true' || req.body.skipPdfUpload === true;
     const user_id = req.user?.id || req.user?._id || req.user?.userId || req.user?.user_id;
+    const companyOfficeId = extractCompanyOfficeId(req);
     if (!user_id) {
       return res.status(401).json({
         status: "failed",
@@ -480,6 +482,7 @@ exports.processSubmitReportsQuicklyBatch = async (req, res) => {
         user_id,
         user_phone: isGuestToken ? null : (req.user?.phone || null),
         company: req.user?.company || null,
+        company_office_id: companyOfficeId,
         batch_id: batchId,
         source_excel_name: file.originalname,
         title: title,
@@ -538,7 +541,9 @@ exports.listSubmitReportsQuickly = async (req, res) => {
     }
 
     const limit = Math.min(Number(req.query.limit) || 200, 500);
-    const reports = await SubmitReportsQuickly.find({})
+    const companyOfficeId = extractCompanyOfficeId(req);
+    const query = companyOfficeId ? { company_office_id: companyOfficeId } : {};
+    const reports = await SubmitReportsQuickly.find(query)
       .sort({ createdAt: -1, _id: -1 })
       .limit(limit);
 
@@ -564,14 +569,19 @@ exports.getQuickReportsByUserId = async (req, res) => {
     const limit = Math.min(Number(req.query.limit) || 10, 100); // Default 10, max 100
     const page = Math.max(Number(req.query.page) || 1, 1);
     const skip = (page - 1) * limit;
+    const companyOfficeId = extractCompanyOfficeId(req);
+
+    const query = companyOfficeId
+      ? { user_id, company_office_id: companyOfficeId }
+      : { user_id };
 
     const [reports, total] = await Promise.all([
-      SubmitReportsQuickly.find({ user_id })
+      SubmitReportsQuickly.find(query)
         .sort({ createdAt: -1, _id: -1 })
         .skip(skip)
         .limit(limit)
         .lean(), // Add .lean() for better performance
-      SubmitReportsQuickly.countDocuments({ user_id }),
+      SubmitReportsQuickly.countDocuments(query),
     ]);
 
     return res.json({

@@ -6,12 +6,19 @@ const { checkMissingPagesUC } = require('../../application/services/report/check
 const { getReportsByUserIdUC } = require('../../application/services/report/getReportsByUserId.uc');
 const Report = require("../../infrastructure/models/report");
 const { createNotification } = require('../../application/services/notification/notification.service');
+const { extractCompanyOfficeId } = require("../utils/companyOffice");
 
 const reportController = {
     async createReport(req, res) {
         try {
             const { reportId, reportData } = req.body;
-            const { success, message, data } = await createReportUC(reportId, reportData, req.user);
+            const companyOfficeId = extractCompanyOfficeId(req);
+            const { success, message, data } = await createReportUC(
+                reportId,
+                reportData,
+                req.user,
+                companyOfficeId
+            );
 
             if (success) {
                 res.status(200).json({ success, message, data });
@@ -26,7 +33,8 @@ const reportController = {
     async reportExistenceCheck(req, res) {
         try {
             const { reportId } = req.params;
-            const { success, message, data } = await reportExistenceCheckUC(reportId);
+            const companyOfficeId = extractCompanyOfficeId(req);
+            const { success, message, data } = await reportExistenceCheckUC(reportId, companyOfficeId);
 
             if (success) {
                 console.log("Success", success, "message", message, "data", data);
@@ -235,7 +243,8 @@ const reportController = {
     async checkMissingPages(req, res) {
         try {
             const { reportId } = req.params;
-            const { success, missingPages, hasMissing } = await checkMissingPagesUC(reportId);
+            const companyOfficeId = extractCompanyOfficeId(req);
+            const { success, missingPages, hasMissing } = await checkMissingPagesUC(reportId, companyOfficeId);
 
             res.status(200).json({ success, missingPages, hasMissing });
 
@@ -248,7 +257,8 @@ const reportController = {
     async addCommonFields(req, res) {
         try {
             const { reportId, region, city, inspectionDate, ownerName } = req.body;
-            const { success, message, data } = await addCommonFields(reportId, region, city, inspectionDate, ownerName);
+            const companyOfficeId = extractCompanyOfficeId(req);
+            const { success, message, data } = await addCommonFields(reportId, region, city, inspectionDate, ownerName, companyOfficeId);
 
             if (success) {
                 res.status(200).json({ success, message, data });
@@ -317,10 +327,12 @@ const reportController = {
                 ? { asset_data: enhancedReportData, report_status: normalizedStatus }
                 : enhancedReportData;
 
+            const companyOfficeId = extractCompanyOfficeId(req);
             const { success, message, data } = await createReportUC(
                 reportId.trim(),
                 payload,
-                userId   // ONLY user id
+                userId,   // ONLY user id
+                companyOfficeId
             );
 
             if (success) {

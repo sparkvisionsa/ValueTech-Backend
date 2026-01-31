@@ -10,6 +10,7 @@ const reportSchema = new mongoose.Schema({
   user_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   user_phone: { type: String },
   company: { type: mongoose.Schema.Types.ObjectId, ref: 'Company', default: null },
+  company_office_id: { type: String, default: null, index: true },
   report_id: { type: String },
   title: { type: String },
   purpose_id: { type: String },
