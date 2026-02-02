@@ -6,6 +6,10 @@ const routes = require('./presentation/routes/index.routes');
 const adsRoutes = require("./presentation/routes/ads.route");
 const harajAdsRoutes = require("./presentation/routes/harajAds.routes");
 const harajScrapeRoutes = require("./presentation/routes/harajScrape.routes");
+const mobasherRoute = require("./presentation/routes/mobasher.route");
+
+
+
 
 
 
@@ -24,6 +28,10 @@ app.use('/api', routes);
 app.use("/api/ads", adsRoutes);
 app.use("/api/haraj-ads", harajAdsRoutes);
 app.use("/api/haraj-scrape", harajScrapeRoutes);
+
+app.use("/api/mobasher", mobasherRoute);
+
+
 
 
 // app.use("/api/reports", allReportRoutes);

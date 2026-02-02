@@ -74,9 +74,9 @@ const HarajScrapeSchema = new mongoose.Schema(
     // flattened fields for fast queries
     title: { type: String, default: null },
     postDate: { type: Number, default: null, index: true },
-    tags: { type: [String], default: [], index: true },
-    city: { type: String, default: null, index: true },
-    priceNumeric: { type: Number, default: null, index: true },
+    tags: { type: [String], default: [] },
+    city: { type: String, default: null },
+    priceNumeric: { type: Number, default: null },
     hasPrice: { type: Boolean, default: false, index: true },
 
     // raw payloads (optional)
