@@ -933,6 +933,24 @@ exports.getMultiApproachReportsByUserId = async (req, res) => {
   }
 };
 
+const parseJsonField = (field, value) => {
+  if (value === undefined || value === null) return value;
+  if (typeof value !== "string") return value;
+  if (!["valuers", "report_users"].includes(field)) return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
+};
+
+const isTruthyFlag = (value) => {
+  if (value === undefined || value === null) return false;
+  if (typeof value === "boolean") return value;
+  const normalized = String(value).trim().toLowerCase();
+  return normalized === "true" || normalized === "1";
+};
+
 exports.updateMultiApproachReport = async (req, res) => {
   try {
     if (!req.user) {
@@ -974,9 +992,17 @@ exports.updateMultiApproachReport = async (req, res) => {
 
     allowedFields.forEach((field) => {
       if (req.body[field] !== undefined) {
-        updates[field] = req.body[field];
+        updates[field] = parseJsonField(field, req.body[field]);
       }
     });
+
+    if (req.file?.path) {
+      updates.pdf_path = path.resolve(req.file.path);
+    } else if (isTruthyFlag(req.body.useTemporaryPdf)) {
+      updates.pdf_path = dummyPdfPath;
+    } else if (req.body.pdf_path !== undefined) {
+      updates.pdf_path = req.body.pdf_path;
+    }
 
     Object.assign(report, updates);
     await report.save();

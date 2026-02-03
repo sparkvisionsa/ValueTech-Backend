@@ -7,6 +7,12 @@ const normalizeType = (t = '') => {
     return 'equipment';
 };
 
+const normalizeOfficeId = (value) => {
+    if (value === undefined || value === null) return null;
+    const trimmed = String(value || '').trim();
+    return trimmed || null;
+};
+
 const normalizeValuers = (list = []) => {
     if (!Array.isArray(list)) return [];
     return list
@@ -32,22 +38,38 @@ exports.syncCompanies = async (req, res) => {
 
         const upserts = await Promise.all(
             companies.map((company) => {
+                const officeId = normalizeOfficeId(
+                    company.officeId ?? company.office_id ?? null
+                );
                 const payload = {
                     name: company.name || company.companyName || 'Unknown company',
                     type: normalizeType(company.type),
                     phone,
                     user: userId,
                     url: company.url || company.link || '',
-                    officeId: company.officeId || company.office_id || null,
                     sectorId: company.sectorId || company.sector_id || null
                 };
+
+                if (officeId) {
+                    payload.officeId = officeId;
+                }
 
                 if (Array.isArray(company.valuers)) {
                     payload.valuers = normalizeValuers(company.valuers);
                 }
 
+                const filter = {
+                    phone,
+                    type: payload.type
+                };
+                if (officeId) {
+                    filter.officeId = officeId;
+                } else {
+                    filter.name = payload.name;
+                }
+
                 return Companes.findOneAndUpdate(
-                    { phone, name: payload.name, type: payload.type },
+                    filter,
                     { $set: payload },
                     { new: true, upsert: true, setDefaultsOnInsert: true }
                 ).lean();

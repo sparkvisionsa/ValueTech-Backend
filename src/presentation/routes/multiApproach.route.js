@@ -16,7 +16,7 @@ const {
 
 router.get("/", authMiddleware, listMultiApproachReports);
 router.get("/user", authMiddleware, getMultiApproachReportsByUserId);
-router.patch("/:id", authMiddleware, updateMultiApproachReport);
+router.patch("/:id", authMiddleware, upload.single("pdf"), updateMultiApproachReport);
 router.delete("/:id", authMiddleware, deleteMultiApproachReport);
 router.patch("/:id/assets/:index", authMiddleware, updateMultiApproachAsset);
 router.delete("/:id/assets/:index", authMiddleware, deleteMultiApproachAsset);

@@ -64,12 +64,13 @@ exports.updateSystemState = async (req, res) => {
         downtimeDays,
         downtimeHours,
         notes,
-        allowedModules,
-        partialMessage,
-        guestAccessEnabled,
-        guestAccessLimit,
-        ramTabsPerGb
-    } = req.body;
+    allowedModules,
+    partialMessage,
+    guestAccessEnabled,
+    guestAccessLimit,
+    guestFreePoints,
+    ramTabsPerGb
+} = req.body;
     try {
         if (mode && !VALID_MODES.includes(mode)) {
             return res.status(400).json({ message: 'Invalid mode supplied' });
@@ -122,6 +123,14 @@ exports.updateSystemState = async (req, res) => {
                 return res.status(400).json({ message: 'guestAccessLimit must be a number greater than 0' });
             }
             state.guestAccessLimit = parsed;
+        }
+
+        if (typeof guestFreePoints === 'number' || typeof guestFreePoints === 'string') {
+            const parsed = Number(guestFreePoints);
+            if (Number.isNaN(parsed) || parsed <= 0) {
+                return res.status(400).json({ message: 'guestFreePoints must be a number greater than 0' });
+            }
+            state.guestFreePoints = parsed;
         }
 
         if (typeof ramTabsPerGb === 'number' || typeof ramTabsPerGb === 'string') {

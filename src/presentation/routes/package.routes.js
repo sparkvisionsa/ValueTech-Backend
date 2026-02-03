@@ -13,6 +13,7 @@ router.put('/:id', authMiddleware, packageController.updatePackage);
 router.delete('/:id', authMiddleware, packageController.deletePackage);
 router.post('/subscribe', authMiddleware, packageController.subscribeToPackage);
 router.get('/subscriptions', authMiddleware, packageController.getUserSubscriptions);
+router.get('/deductions', authMiddleware, packageController.listDeductionHistory);
 router.post('/requests', authMiddleware, packageController.createPackageRequest);
 router.get('/requests', authMiddleware, packageController.getPackageRequests);
 router.patch('/requests/:id', authMiddleware, packageController.updatePackageRequest);

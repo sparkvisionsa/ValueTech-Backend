@@ -543,10 +543,17 @@ exports.newTaqeemBootstrap = async (req, res) => {
 
       console.log("[TAQEEM] bootstrap package loaded", pkg._id);
 
+      const systemState = await SystemState.getSingleton();
+      const configuredPoints = Number(systemState?.guestFreePoints);
+      const guestPoints =
+        Number.isFinite(configuredPoints) && configuredPoints > 0
+          ? configuredPoints
+          : pkg.points;
+
       await Subscription.create({
         userId: user._id,
         packageId: pkg._id,
-        remainingPoints: pkg.points,
+        remainingPoints: guestPoints,
       });
 
       console.log("[TAQEEM] subscription created");

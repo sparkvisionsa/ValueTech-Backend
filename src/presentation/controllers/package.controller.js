@@ -1,9 +1,16 @@
+const mongoose = require('mongoose');
 const Package = require('../../infrastructure/models/package');
 const Subscription = require('../../infrastructure/models/subscription');
 const PaymentRequest = require('../../infrastructure/models/paymentRequest');
 const PaymentRequestMessage = require('../../infrastructure/models/paymentRequestMessage');
 const User = require('../../infrastructure/models/user');
 const StoredFile = require('../../infrastructure/models/storedFile');
+const Report = require('../../infrastructure/models/report');
+const MultiApproachReport = require('../../infrastructure/models/MultiApproachReport');
+const DuplicateReport = require('../../infrastructure/models/DuplicateReport');
+const SubmitReportsQuickly = require('../../infrastructure/models/SubmitReportsQuickly');
+const ElrajhiReport = require('../../infrastructure/models/ElrajhiReport');
+const PointDeduction = require('../../infrastructure/models/pointDeduction');
 const deductPoints = require('../../application/services/packages/deductPoints');
 const { createNotification } = require('../../application/services/notification/notification.service');
 const { storeAttachments, storeUploadedFile, buildFileUrl } = require('../../application/services/files/fileStorage.service');
@@ -41,6 +48,225 @@ const buildMessagePreview = (body = '', attachments = []) => {
     return '';
 };
 
+const DEFAULT_PAGE_NAME = 'Packages';
+const DEFAULT_SOURCE_CONFIG = {
+    model: Report,
+    pageName: 'Packages',
+    pageSource: 'packages',
+    batchField: null,
+};
+
+const SOURCE_CONFIGS = {
+    'upload-assets': {
+        model: Report,
+        pageName: 'Upload Assets',
+        pageSource: 'upload-assets',
+    },
+    'reports-table': {
+        model: Report,
+        pageName: 'Reports Table',
+        pageSource: 'reports-table',
+    },
+    'submit-reports-quickly': {
+        model: SubmitReportsQuickly,
+        pageName: 'Submit Reports Quickly',
+        pageSource: 'submit-reports-quickly',
+        batchField: 'batch_id',
+    },
+    'duplicate-report': {
+        model: DuplicateReport,
+        pageName: 'Upload Manual Report',
+        pageSource: 'duplicate-report',
+    },
+    'multi-batch': {
+        model: MultiApproachReport,
+        pageName: 'Multi-Excel Upload',
+        pageSource: 'multi-batch',
+        batchField: 'batchId',
+    },
+    'manual-report': {
+        model: MultiApproachReport,
+        pageName: 'Manual Multi Report',
+        pageSource: 'manual-report',
+        batchField: 'batchId',
+    },
+    'elrajhi-upload': {
+        model: ElrajhiReport,
+        pageName: 'Upload Report (El Rajhi)',
+        pageSource: 'elrajhi-upload',
+        batchField: 'batchId',
+    },
+    'elrajhi-upload-pdf': {
+        model: ElrajhiReport,
+        pageName: 'Upload Report (El Rajhi) - PDF',
+        pageSource: 'elrajhi-upload-pdf',
+        batchField: 'batchId',
+    },
+    system: {
+        model: ElrajhiReport,
+        pageName: 'Upload Report (El Rajhi)',
+        pageSource: 'system',
+        batchField: 'batchId',
+    },
+};
+
+const toDateValue = (value) => {
+    if (!value) return null;
+    if (value instanceof Date && !Number.isNaN(value.getTime())) return value;
+    if (typeof value === 'string' || typeof value === 'number') {
+        const date = new Date(value);
+        return Number.isNaN(date.getTime()) ? null : date;
+    }
+    return null;
+};
+
+const inferAssetCount = (doc) => {
+    if (!doc) return 0;
+    const candidates = [
+        doc.asset_data,
+        doc.assetData,
+        doc.assets,
+        doc.assetList,
+        doc.assets_data,
+        doc.asset_list,
+    ];
+
+    for (const value of candidates) {
+        if (Array.isArray(value)) return value.length;
+        if (Number.isFinite(value)) {
+            const normalized = Number(value);
+            if (!Number.isNaN(normalized)) return Math.max(0, normalized);
+        }
+    }
+
+    if (doc.asset_data && typeof doc.asset_data === 'object' && Array.isArray(doc.asset_data.assets)) {
+        return doc.asset_data.assets.length;
+    }
+
+    return 0;
+};
+
+const getSourceConfig = (source) => {
+    if (!source) return DEFAULT_SOURCE_CONFIG;
+    const config = SOURCE_CONFIGS[source] || DEFAULT_SOURCE_CONFIG;
+    return {
+        ...DEFAULT_SOURCE_CONFIG,
+        ...config,
+    };
+};
+
+const buildUserFilter = (userId) => {
+    if (!userId) return {};
+    if (mongoose.Types.ObjectId.isValid(String(userId))) {
+        return { user_id: new mongoose.Types.ObjectId(String(userId)) };
+    }
+    return { user_id: String(userId) };
+};
+
+const buildSummaryFromDoc = (doc, config, overrides = {}) => {
+    if (!doc) return null;
+    const reportIdentifier =
+        doc.report_id ||
+        doc.reportId ||
+        doc.rawReportId ||
+        doc.reportIdValue ||
+        (doc._id ? doc._id.toString() : '');
+    const resolvedPageName = overrides.pageName || config.pageName || DEFAULT_PAGE_NAME;
+    const resolvedPageSource =
+        overrides.pageSource || config.pageSource || DEFAULT_SOURCE_CONFIG.pageSource;
+    return {
+        reportId: reportIdentifier,
+        recordId: doc._id ? doc._id.toString() : overrides.recordId || null,
+        clientName: doc.client_name || doc.title || doc.clientName || '',
+        submittedAt: toDateValue(doc.submitted_at || doc.submittedAt || null),
+        endSubmitTime: toDateValue(doc.endSubmitTime || doc.end_submit_time || null),
+        pageName: resolvedPageName,
+        pageSource: resolvedPageSource,
+        assetCount: inferAssetCount(doc),
+    };
+};
+
+const collectReportSummaries = async (options = {}) => {
+    const {
+        source,
+        userId,
+        reportIds = [],
+        reportId,
+        recordId,
+        batchId,
+        pageName,
+        pageSource,
+    } = options;
+    const config = getSourceConfig(source);
+    const model = config.model;
+    if (!model) return [];
+    const baseFilter = buildUserFilter(userId);
+    const seenIds = new Set();
+    const summaries = [];
+
+    const pushDoc = (doc) => {
+        if (!doc || !doc._id) return;
+        const key = doc._id.toString();
+        if (seenIds.has(key)) return;
+        seenIds.add(key);
+        const summary = buildSummaryFromDoc(doc, config, { pageName, pageSource });
+        if (summary) summaries.push(summary);
+    };
+
+    const queryAndPush = async (query) => {
+        if (!query) return;
+        const docs = await model.find({ ...baseFilter, ...query }).lean();
+        docs.forEach(pushDoc);
+    };
+
+    const normalizedReportIds = Array.isArray(reportIds)
+        ? reportIds.filter(Boolean)
+        : [];
+    if (normalizedReportIds.length) {
+        await queryAndPush({ report_id: { $in: normalizedReportIds } });
+    }
+    if (reportId) {
+        await queryAndPush({ report_id: reportId });
+    }
+    if (recordId) {
+        await queryAndPush({ _id: recordId });
+    }
+    if (batchId && config.batchField) {
+        await queryAndPush({ [config.batchField]: batchId });
+    }
+
+    if (!summaries.length && normalizedReportIds.length) {
+        const fallback = normalizedReportIds[0];
+        summaries.push({
+            reportId: fallback,
+            recordId: recordId || null,
+            clientName: '',
+            submittedAt: null,
+            endSubmitTime: null,
+            pageName: pageName || config.pageName || DEFAULT_PAGE_NAME,
+            pageSource:
+                pageSource || config.pageSource || source || DEFAULT_SOURCE_CONFIG.pageSource,
+        });
+    }
+    if (!summaries.length && reportId) {
+        summaries.push({
+            reportId,
+            recordId: recordId || null,
+            clientName: '',
+            submittedAt: null,
+            endSubmitTime: null,
+            pageName: pageName || config.pageName || DEFAULT_PAGE_NAME,
+            pageSource:
+                pageSource || config.pageSource || source || DEFAULT_SOURCE_CONFIG.pageSource,
+        });
+    }
+
+    return summaries;
+};
+
+const createPointDeductionRecord = async (params) => {
+    return PointDeduction.create(params);
+};
 const canAccessRequest = (request, userId, isAdmin) => {
     if (!request || !userId) return false;
     if (isAdmin) return true;
@@ -148,6 +374,15 @@ exports.deductUserPoints = async (req, res) => {
     try {
         const userId = req.userId;
         const amount = Number(req.body.amount);
+        const reportId = req.body.reportId || null;
+        const reportIdsPayload = Array.isArray(req.body.reportIds)
+            ? req.body.reportIds
+            : typeof req.body.reportIds === 'string'
+                ? req.body.reportIds.split(',').map((id) => id.trim()).filter(Boolean)
+                : [];
+        const reportIds = reportIdsPayload.filter(Boolean);
+        const batchId = req.body.batchId || null;
+        const assetCount = Number(req.body.assetCount ?? req.body.assets ?? 0);
 
         if (!userId) {
             return res.status(400).json({ message: "userId is required" });
@@ -157,11 +392,116 @@ exports.deductUserPoints = async (req, res) => {
             return res.status(400).json({ message: "amount must be a positive number" });
         }
 
-        await deductPoints(userId, amount);
+        const subscriptionsBefore = await Subscription.find({ userId });
+        const totalBefore = subscriptionsBefore.reduce(
+            (sum, sub) => sum + (Number.isFinite(sub.remainingPoints) ? sub.remainingPoints : 0),
+            0
+        );
+
+        const deductionResult = await deductPoints(userId, amount);
+        const totalAfter = deductionResult?.remainingPoints ?? 0;
+
+        const deductionSource = String(req.body.source || req.body.pageSource || "packages");
+        const deductionPageName =
+            req.body.pageName ||
+            (SOURCE_CONFIGS[deductionSource]?.pageName || DEFAULT_PAGE_NAME);
+        const deductionPageSource = req.body.pageSource || deductionSource;
+        const recordId = req.body.recordId || null;
+        const metadata = {
+            clientName: String(req.body.clientName || req.body.reportClientName || "").trim(),
+            submittedAt: req.body.submittedAt || req.body.reportSubmittedAt || null,
+            endSubmitTime: req.body.endSubmitTime || req.body.reportEndSubmitTime || null,
+            extra: req.body.metadata || {},
+        };
+
+        const descriptor = reportIds.length
+            ? `Report${reportIds.length > 1 ? 's' : ''} ${reportIds.join(', ')}`
+            : reportId
+                ? `Report number ${reportId}`
+                : batchId
+                    ? `Batch ${batchId}`
+                    : "Points deduction";
+        const assetPhrase = assetCount > 0 ? ` (${assetCount} assets)` : "";
+        const title = reportId
+            ? `${deductionPageName} – Report ${reportId}`
+            : batchId
+                ? `${deductionPageName} – Batch ${batchId}`
+                : `${deductionPageName} – Points deducted`;
+        const message = `${descriptor} on ${deductionPageName} completed${assetPhrase}. ${amount} points were deducted (${totalBefore} → ${totalAfter}).`;
+
+        const reportSummaries = await collectReportSummaries({
+            source: deductionSource,
+            userId,
+            reportIds,
+            reportId,
+            recordId,
+            batchId,
+            pageName: deductionPageName,
+            pageSource: deductionPageSource,
+        });
+
+        const deductionRecord = await createPointDeductionRecord({
+            userId,
+            amount,
+            assetCount,
+            remainingPoints: totalAfter,
+            source: deductionSource,
+            pageName: deductionPageName,
+            pageSource: deductionPageSource,
+            reportId,
+            reportIds,
+            recordId,
+            batchId,
+            message,
+            reportSummaries,
+            metadata,
+        });
+
+        await createNotification({
+            userId,
+            type: "package",
+            level: "info",
+            title,
+            message,
+            data: {
+                reportId,
+                reportIds,
+                batchId,
+                assets: assetCount,
+                deducted: amount,
+                totalBefore,
+                totalAfter,
+                pageName: deductionPageName,
+                pageSource: deductionPageSource,
+                target: "deduction-history",
+                deductionId: deductionRecord?._id?.toString(),
+            },
+        });
 
         return res.json({
             success: true,
-            message: `Deducted ${amount} points successfully`
+            message,
+            deducted: amount,
+            totalBefore,
+            remainingPoints: totalAfter,
+            deductionId: deductionRecord?._id?.toString(),
+            recordId: deductionRecord?.recordId || recordId || null,
+            reportId: deductionRecord?.reportId || reportId || null,
+            reportIds: Array.isArray(deductionRecord?.reportIds)
+                ? deductionRecord.reportIds
+                : reportIds,
+            batchId: deductionRecord?.batchId || batchId || null,
+            assetCount: Number.isFinite(deductionRecord?.assetCount)
+                ? deductionRecord.assetCount
+                : assetCount,
+            source: deductionRecord?.source || deductionSource,
+            pageName: deductionRecord?.pageName || deductionPageName,
+            pageSource: deductionRecord?.pageSource || deductionPageSource,
+            reportSummaries,
+            metadata,
+            createdAt: deductionRecord?.createdAt
+                ? deductionRecord.createdAt.toISOString()
+                : new Date().toISOString(),
         });
 
     } catch (error) {
@@ -172,6 +512,41 @@ exports.deductUserPoints = async (req, res) => {
     }
 };
 
+exports.listDeductionHistory = async (req, res) => {
+    try {
+        const userId = req.userId;
+        if (!userId) {
+            return res.status(401).json({ success: false, message: "Unauthorized" });
+        }
+        const page = Math.max(Number(req.query.page) || 1, 1);
+        const limit = Math.min(Math.max(Number(req.query.limit) || 20, 1), 50);
+        const skip = (page - 1) * limit;
+        const [records, total] = await Promise.all([
+            PointDeduction.find({ userId })
+                .sort({ createdAt: -1 })
+                .skip(skip)
+                .limit(limit)
+                .lean(),
+            PointDeduction.countDocuments({ userId }),
+        ]);
+        return res.json({
+            success: true,
+            data: records,
+            pagination: {
+                page,
+                limit,
+                total,
+                totalPages: Math.max(1, Math.ceil(total / limit)),
+            },
+        });
+    } catch (error) {
+        console.error("Error fetching deduction history:", error);
+        return res.status(500).json({
+            success: false,
+            message: error.message || "Failed to load deduction history",
+        });
+    }
+};
 
 
 exports.createPackageRequest = async (req, res) => {

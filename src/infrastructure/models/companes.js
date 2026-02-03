@@ -25,8 +25,18 @@ const companesSchema = new mongoose.Schema(
     }
 );
 
-// Prevent duplicates per user/phone + name + type
-companesSchema.index({ phone: 1, name: 1, type: 1 }, { unique: true });
+// Prevent duplicates per user/phone + office or legacy name+type when officeId missing
+companesSchema.index(
+    { phone: 1, officeId: 1, type: 1 },
+    {
+        unique: true,
+        partialFilterExpression: { officeId: { $exists: true, $ne: null } }
+    }
+);
+companesSchema.index(
+    { phone: 1, name: 1, type: 1 },
+    { unique: true, partialFilterExpression: { officeId: null } }
+);
 
 const Companes = mongoose.model('Companes', companesSchema);
 module.exports = Companes;
