@@ -7,6 +7,8 @@ const adsRoutes = require("./presentation/routes/ads.route");
 const harajAdsRoutes = require("./presentation/routes/harajAds.routes");
 const harajScrapeRoutes = require("./presentation/routes/harajScrape.routes");
 const mobasherRoute = require("./presentation/routes/mobasher.route");
+const yallaRoute = require("./presentation/routes/yalla.routes");
+
 
 
 
@@ -30,6 +32,7 @@ app.use("/api/haraj-ads", harajAdsRoutes);
 app.use("/api/haraj-scrape", harajScrapeRoutes);
 
 app.use("/api/mobasher", mobasherRoute);
+app.use("/api/yalla", yallaRoute);
 
 
 
