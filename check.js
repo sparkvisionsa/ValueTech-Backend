@@ -4,7 +4,7 @@ const UrgentReport = require("../../infrastructure/models/UrgentReport");
 const Report = require("../../infrastructure/models/report");
 const DuplicateReport = require("../../infrastructure/models/DuplicateReport");
 const SubmitReportsQuickly = require("../../infrastructure/models/SubmitReportsQuickly");
-const ReportDeletion = require("../../infrastructure/models/ReportDeletions");
+const ReportDeletion = require("../../infrastructure/models/ReportDeletion");
 
 const mongoose = require("mongoose");
 
@@ -873,8 +873,6 @@ exports.updateReportCheckStatus = async (req, res) => {
       });
     }
 
-    console.log("updates:", updates);
-
     const payload = {
       report_id: String(report_id),
       user_id: user_id ? String(user_id) : null,
@@ -887,8 +885,11 @@ exports.updateReportCheckStatus = async (req, res) => {
 
     const query = {
       report_id: String(report_id),
-      user_id: user_id ? String(user_id) : null,
     };
+
+    if (user_id) {
+      query.user_id = String(user_id);
+    }
 
     if (company_office_id) {
       query.company_office_id = String(company_office_id);
