@@ -1,4 +1,5 @@
 const mongoose = require("mongoose");
+const { getScrappingConnection } = require("../connect");
 
 const PriceSchema = new mongoose.Schema(
   {
@@ -106,5 +107,6 @@ HarajScrapeSchema.index(
   { default_language: "none" }
 );
 
-module.exports = mongoose.model("HarajScrape", HarajScrapeSchema);
+const scrappingConnection = getScrappingConnection();
+module.exports = scrappingConnection.model("HarajScrape", HarajScrapeSchema);
 

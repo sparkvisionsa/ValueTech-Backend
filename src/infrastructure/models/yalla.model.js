@@ -1,5 +1,6 @@
 // src/models/yalla.model.js
 const mongoose = require("mongoose");
+const { getScrappingConnection } = require("../connect");
 
 const YallaSchema = new mongoose.Schema(
   {
@@ -23,4 +24,5 @@ const YallaSchema = new mongoose.Schema(
   { collection: "yallamotortest", strict: false }
 );
 
-module.exports = mongoose.model("YallaModel", YallaSchema);
+const scrappingConnection = getScrappingConnection();
+module.exports = scrappingConnection.model("YallaModel", YallaSchema);
