@@ -16,14 +16,14 @@ const getReportsByUserIdUC = async ({
         const skip = (page - 1) * limit;
 
         // Base query scoping by userId
-        let query = { user_id: userId };
+        const baseQuery = { user_id: userId };
 
         if (filters.status) {
-            query.status = filters.status;
+            baseQuery.status = filters.status;
         }
 
         if (filters.report_status) {
-            query.report_status = filters.report_status;
+            baseQuery.report_status = filters.report_status;
         }
 
         const companyOfficeId =
@@ -31,41 +31,60 @@ const getReportsByUserIdUC = async ({
             filters.company_office_id ||
             filters.officeId ||
             filters.office_id;
-        if (companyOfficeId) {
-            query.company_office_id = String(companyOfficeId).trim();
-        }
 
         const excludeRaw = filters.excludeReportStatus || filters.exclude_report_status;
-        if (excludeRaw && !query.report_status) {
+        if (excludeRaw && !baseQuery.report_status) {
             const excludeList = String(excludeRaw)
                 .split(',')
                 .map((value) => value.trim())
                 .filter(Boolean);
             if (excludeList.length > 0) {
-                query.report_status = { $nin: excludeList };
+                baseQuery.report_status = { $nin: excludeList };
             }
         }
 
         if (filters.reportType) {
-            query.reportType = filters.reportType;
+            baseQuery.reportType = filters.reportType;
         }
 
         if (filters.priority) {
-            query.priority = filters.priority;
+            baseQuery.priority = filters.priority;
         }
 
         if (filters.startDate && filters.endDate) {
-            query.createdAt = {
+            baseQuery.createdAt = {
                 $gte: new Date(filters.startDate),
                 $lte: new Date(filters.endDate),
             };
         }
 
         if (filters.search) {
-            query.$or = [
+            baseQuery.$or = [
                 { title: { $regex: filters.search, $options: 'i' } },
                 { description: { $regex: filters.search, $options: 'i' } },
             ];
+        }
+
+        const unassignedOnly = ["1", "true", "yes"].includes(
+            String(filters.unassigned || filters.unassigned_only || "").trim().toLowerCase()
+        );
+
+        let query = baseQuery;
+        if (unassignedOnly) {
+            query = {
+                $and: [
+                    baseQuery,
+                    {
+                        $or: [
+                            { company_office_id: { $exists: false } },
+                            { company_office_id: null },
+                            { company_office_id: "" },
+                        ],
+                    },
+                ],
+            };
+        } else if (companyOfficeId) {
+            query = { ...baseQuery, company_office_id: String(companyOfficeId).trim() };
         }
 
         const sortObject = {};

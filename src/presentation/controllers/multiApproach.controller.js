@@ -770,9 +770,10 @@ exports.createManualMultiApproachReport = async (req, res) => {
     const owner_name = reportInfo.owner_name || reportInfo.client_name || "";
 
     const companyOfficeId = extractCompanyOfficeId(req);
+    const resolvedUserId = req.user?.id || req.user?._id || req.userId || null;
     const doc = {
       batchId,
-      user_id: req.user?.id,
+      user_id: resolvedUserId,
       company: req.user?.company || null,
       company_office_id: companyOfficeId,
       excel_name,
@@ -850,7 +851,21 @@ exports.listMultiApproachReports = async (req, res) => {
 
     const limit = Math.min(Number(req.query.limit) || 200, 500);
     const companyOfficeId = extractCompanyOfficeId(req);
-    const query = companyOfficeId ? { company_office_id: companyOfficeId } : {};
+    const unassignedOnly = ["1", "true", "yes"].includes(
+      String(req.query.unassigned || "").trim().toLowerCase()
+    );
+    const unassignedFilter = {
+      $or: [
+        { company_office_id: { $exists: false } },
+        { company_office_id: null },
+        { company_office_id: "" },
+      ],
+    };
+    const query = unassignedOnly
+      ? unassignedFilter
+      : companyOfficeId
+      ? { company_office_id: companyOfficeId }
+      : {};
     const reports = await MultiApproachReport.find(query)
       .sort({ createdAt: -1, _id: -1 })
       .limit(limit);
@@ -882,11 +897,12 @@ exports.getMultiApproachReportsByUserId = async (req, res) => {
     const status = req.query.status;
 
     // Build query based on filters
-    let query = { user_id };
+    const baseQuery = { user_id };
     const companyOfficeId = extractCompanyOfficeId(req);
-    if (companyOfficeId) {
-      query.company_office_id = companyOfficeId;
-    }
+    const unassignedOnly = ["1", "true", "yes"].includes(
+      String(req.query.unassigned || "").trim().toLowerCase()
+    );
+    let query = baseQuery;
 
     // Add status filter if provided
     if (status && status !== 'all') {
@@ -901,6 +917,23 @@ exports.getMultiApproachReportsByUserId = async (req, res) => {
         query.endSubmitTime = { $exists: false };
         query.checked = { $ne: true };
       }
+    }
+
+    if (unassignedOnly) {
+      query = {
+        $and: [
+          query,
+          {
+            $or: [
+              { company_office_id: { $exists: false } },
+              { company_office_id: null },
+              { company_office_id: "" },
+            ],
+          },
+        ],
+      };
+    } else if (companyOfficeId) {
+      query.company_office_id = companyOfficeId;
     }
 
     const [reports, total] = await Promise.all([
@@ -965,6 +998,7 @@ exports.updateMultiApproachReport = async (req, res) => {
 
     const updates = {};
     const allowedFields = [
+      "company_office_id",
       "report_id",
       "title",
       "purpose_id",

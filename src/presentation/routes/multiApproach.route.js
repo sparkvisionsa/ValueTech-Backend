@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 
 const authMiddleware = require("../../application/middleware/authMiddleware");
+const optionalAuth = require("../middleware/optionalAuth.middleware");
 const upload = require("../../utils/upload.multer");
 const {
   processMultiApproachBatch,
@@ -37,6 +38,6 @@ router.post(
 );
 
 // Manual entry flow
-router.post("/manual", createManualMultiApproachReport);
+router.post("/manual", optionalAuth, createManualMultiApproachReport);
 
 module.exports = router;

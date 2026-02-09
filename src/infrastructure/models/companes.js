@@ -4,7 +4,7 @@ const companesSchema = new mongoose.Schema(
     {
         name: { type: String, required: true },
         type: { type: String, enum: ['real-estate', 'equipment'], required: true },
-        phone: { type: String, required: true }, // owner phone
+        phone: { type: String, default: null }, // owner phone (optional for guest users)
         user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
         url: { type: String, default: '' },
         officeId: { type: String },
@@ -30,12 +30,41 @@ companesSchema.index(
     { phone: 1, officeId: 1, type: 1 },
     {
         unique: true,
-        partialFilterExpression: { officeId: { $exists: true, $ne: null } }
+        partialFilterExpression: {
+            phone: { $exists: true, $ne: null },
+            officeId: { $exists: true, $ne: null }
+        }
     }
 );
 companesSchema.index(
     { phone: 1, name: 1, type: 1 },
-    { unique: true, partialFilterExpression: { officeId: null } }
+    {
+        unique: true,
+        partialFilterExpression: {
+            phone: { $exists: true, $ne: null },
+            officeId: null
+        }
+    }
+);
+companesSchema.index(
+    { user: 1, officeId: 1, type: 1 },
+    {
+        unique: true,
+        partialFilterExpression: {
+            user: { $exists: true, $ne: null },
+            officeId: { $exists: true, $ne: null }
+        }
+    }
+);
+companesSchema.index(
+    { user: 1, name: 1, type: 1 },
+    {
+        unique: true,
+        partialFilterExpression: {
+            user: { $exists: true, $ne: null },
+            officeId: null
+        }
+    }
 );
 
 const Companes = mongoose.model('Companes', companesSchema);
