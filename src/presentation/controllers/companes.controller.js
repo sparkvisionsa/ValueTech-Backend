@@ -25,15 +25,26 @@ const normalizeValuers = (list = []) => {
 
 exports.syncCompanies = async (req, res) => {
     try {
-        const phone = req.user?.phone || req.body?.phone;
-        const userId = req.user?.id || req.user?._id || null;
+        const phone = req.user?.phone || req.body?.phone || null;
+        const userId = req.user?.id || req.user?._id || req.body?.userId || null;
         const companies = Array.isArray(req.body?.companies) ? req.body.companies : [];
 
-        if (!phone) {
-            return res.status(400).json({ message: 'User phone is required to store companies' });
+        if (!phone && !userId) {
+            return res.status(400).json({ message: 'User phone or id is required to store companies' });
         }
         if (!companies.length) {
             return res.status(400).json({ message: 'No companies provided' });
+        }
+
+        if (phone && userId) {
+            try {
+                await Companes.updateMany(
+                    { user: userId, phone: { $in: [null, ''] } },
+                    { $set: { phone } }
+                );
+            } catch (err) {
+                console.warn('Failed to attach phone to existing guest companies', err);
+            }
         }
 
         const upserts = await Promise.all(
@@ -44,8 +55,8 @@ exports.syncCompanies = async (req, res) => {
                 const payload = {
                     name: company.name || company.companyName || 'Unknown company',
                     type: normalizeType(company.type),
-                    phone,
-                    user: userId,
+                    phone: phone || null,
+                    user: userId || null,
                     url: company.url || company.link || '',
                     sectorId: company.sectorId || company.sector_id || null
                 };
@@ -58,10 +69,9 @@ exports.syncCompanies = async (req, res) => {
                     payload.valuers = normalizeValuers(company.valuers);
                 }
 
-                const filter = {
-                    phone,
-                    type: payload.type
-                };
+                const filter = phone
+                    ? { phone, type: payload.type }
+                    : { user: userId, type: payload.type };
                 if (officeId) {
                     filter.officeId = officeId;
                 } else {
@@ -88,13 +98,17 @@ exports.syncCompanies = async (req, res) => {
 
 exports.listMyCompanies = async (req, res) => {
     try {
-        const phone = req.user?.phone || req.query?.phone;
-        if (!phone) {
-            return res.status(400).json({ message: 'User phone is required' });
+        const phone = req.user?.phone || req.query?.phone || null;
+        const userId = req.user?.id || req.user?._id || req.query?.userId || null;
+        if (!phone && !userId) {
+            return res.status(400).json({ message: 'User phone or id is required' });
         }
 
         const { type } = req.query;
-        const filter = { phone };
+        let filter = phone ? { phone } : { user: userId };
+        if (phone && userId) {
+            filter = { $or: [{ phone }, { user: userId }] };
+        }
         if (type) {
             filter.type = normalizeType(type);
         }

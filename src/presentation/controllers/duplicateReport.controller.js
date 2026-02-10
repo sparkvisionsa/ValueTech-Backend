@@ -240,7 +240,10 @@ exports.listReportsForUser = async (req, res) => {
       return res.status(401).json({ success: false, message: "Unauthorized" });
     }
 
-    const companyOfficeId = extractCompanyOfficeId(req);
+    const unassignedOnly = ["1", "true", "yes"].includes(
+      String(req.query.unassigned || "").trim().toLowerCase()
+    );
+    const companyOfficeId = unassignedOnly ? null : extractCompanyOfficeId(req);
     const baseQuery = buildUserReportQuery(req.user, null, { companyOfficeId });
     if (!baseQuery) {
       return res.status(401).json({ success: false, message: "User context missing." });
@@ -260,7 +263,7 @@ exports.listReportsForUser = async (req, res) => {
     //  - incomplete: otherwise
     const status = String(req.query.status || "all").toLowerCase();
 
-    const query = { ...baseQuery };
+    let query = { ...baseQuery };
 
     if (status !== "all") {
       if (status === "approved") {
@@ -281,6 +284,21 @@ exports.listReportsForUser = async (req, res) => {
           { report_id: null },
         ];
       }
+    }
+
+    if (unassignedOnly) {
+      query = {
+        $and: [
+          query,
+          {
+            $or: [
+              { company_office_id: { $exists: false } },
+              { company_office_id: null },
+              { company_office_id: "" },
+            ],
+          },
+        ],
+      };
     }
 
     // -------- sort latest first --------
@@ -331,6 +349,7 @@ exports.updateDuplicateReport = async (req, res) => {
 
     const updates = {};
     const allowedFields = [
+      "company_office_id",
       "report_id",
       "title",
       "purpose_id",

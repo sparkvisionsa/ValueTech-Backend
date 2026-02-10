@@ -5,6 +5,7 @@ const { addCommonFields } = require('../../application/services/report/addCommon
 const { checkMissingPagesUC } = require('../../application/services/report/checkMissingPages.uc');
 const { getReportsByUserIdUC } = require('../../application/services/report/getReportsByUserId.uc');
 const Report = require("../../infrastructure/models/report");
+const mongoose = require("mongoose");
 const { createNotification } = require('../../application/services/notification/notification.service');
 const { extractCompanyOfficeId } = require("../utils/companyOffice");
 
@@ -454,6 +455,41 @@ const reportController = {
                 success: false,
                 message: error.message
             });
+        }
+    },
+    async updateCompanyOfficeId(req, res) {
+        try {
+            const recordId = req.params.id;
+            const companyOfficeId = extractCompanyOfficeId(req);
+            const userIdRaw = req.userId || req.user?.id || req.user?._id || req.body?.user_id;
+
+            if (!recordId) {
+                return res.status(400).json({ success: false, message: "Report id is required" });
+            }
+            if (!companyOfficeId) {
+                return res.status(400).json({ success: false, message: "companyOfficeId is required" });
+            }
+            if (!userIdRaw) {
+                return res.status(401).json({ success: false, message: "Unauthorized" });
+            }
+
+            const userIdStr = String(userIdRaw).trim();
+            const userMatch = mongoose.Types.ObjectId.isValid(userIdStr)
+                ? { $or: [{ user_id: userIdStr }, { user_id: new mongoose.Types.ObjectId(userIdStr) }] }
+                : { user_id: userIdStr };
+
+            const report = await Report.findOne({ _id: recordId, ...userMatch });
+            if (!report) {
+                return res.status(404).json({ success: false, message: "Report not found." });
+            }
+
+            report.company_office_id = String(companyOfficeId).trim();
+            await report.save();
+
+            return res.json({ success: true, report });
+        } catch (error) {
+            console.error("Error updating report company office id:", error);
+            return res.status(500).json({ success: false, message: error.message });
         }
     }
 

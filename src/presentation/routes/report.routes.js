@@ -17,6 +17,7 @@ router.patch(
     "/:reportId/assets/:assetUid",
     reportController.updateAsset
 );
+router.patch("/:id/company-office", authMiddleware, reportController.updateCompanyOfficeId);
 
 
 module.exports = router;

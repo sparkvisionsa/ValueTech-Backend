@@ -4,6 +4,7 @@ const fs = require("fs");
 const dummyPdfPath = path.resolve("uploads/static/dummy_placeholder.pdf");
 
 const SubmitReportsQuickly = require("../../infrastructure/models/SubmitReportsQuickly");
+const User = require("../../infrastructure/models/user");
 const { createNotification } = require("../../application/services/notification/notification.service");
 const { extractCompanyOfficeId } = require("../utils/companyOffice");
 
@@ -25,25 +26,25 @@ function normalizeKey(str) {
 }
 
 const ASSET_USAGE_TEXT_TO_ID = {
-  "\u0632\u0631\u0627\u0639\u064a": 38,
-  "\u0628\u062d\u0631\u064a": 39,
-  "\u0627\u0644\u0645\u0648\u0627\u0635\u0644\u0627\u062a": 40,
-  "\u0637\u064a\u0631\u0627\u0646": 41,
-  "\u0627\u0644\u062e\u062f\u0645\u0627\u062a\u0020\u0627\u0644\u0644\u0648\u062c\u0633\u062a\u064a\u0629": 42,
-  "\u0637\u0628\u0627\u0639\u0629": 43,
-  "\u0628\u0646\u0627\u0621": 44,
-  "\u0627\u0644\u063a\u0632\u0644\u0020\u0648\u0627\u0644\u0646\u0633\u064a\u062c": 45,
-  "\u0636\u064a\u0627\u0641\u0629": 46,
-  "\u0627\u0644\u062a\u0639\u062f\u064a\u0646": 47,
-  "\u0627\u0644\u062f\u0628\u0627\u063a\u0629\u0020\u0648\u0627\u0644\u062a\u063a\u0644\u064a\u0641": 48,
-  "\u0627\u0644\u0627\u062a\u0635\u0627\u0644\u0627\u062a": 49,
-  "\u0627\u0644\u0646\u0641\u0637\u0020\u0648\u0627\u0644\u063a\u0627\u0632": 50,
-  "\u0627\u0644\u0645\u0633\u062a\u0634\u0641\u064a\u0627\u062a": 51,
-  "\u0627\u0644\u0623\u062f\u0648\u064a\u0629": 52,
-  "\u0645\u0623\u0643\u0648\u0644\u0627\u062a\u0020\u0648\u0645\u0634\u0631\u0648\u0628\u0627\u062a": 53,
-  "\u0645\u064a\u0627\u0647": 54,
-  "\u0645\u064a\u0627\u0647\u0020\u0627\u0644\u0635\u0631\u0641\u0020\u0627\u0644\u0635\u062d\u064a": 55,
-  "\u0627\u0644\u0643\u0647\u0631\u0628\u0627\u0621": 56,
+  "زراعي": 38,
+  "بحري": 39,
+  "المواصلات": 40,
+  "طيران": 41,
+  "الخدمات اللوجستية": 42,
+  "طباعة": 43,
+  "بناء": 44,
+  "الغزل والنسيج": 45,
+  "ضيافة": 46,
+  "التعدين": 47,
+  "الدباغة والتغليف": 48,
+  "الاتصالات": 49,
+  "النفط والغاز": 50,
+  "المستشفيات": 51,
+  "الأدوية": 52,
+  "مأكولات ومشروبات": 53,
+  "مياه": 54,
+  "مياه الصرف الصحي": 55,
+  "الكهرباء": 56,
 };
 
 const normalizeAssetUsageText = (value) =>
@@ -51,7 +52,7 @@ const normalizeAssetUsageText = (value) =>
     .toLowerCase()
     .normalize("NFC")
     .replace(/[\u064B-\u065F\u0670\u06D6-\u06ED]/g, "")
-    .replace(/[\u0640]+/g, "")
+    .replace(/[ـ]+/g, "")
     .replace(/\s+/g, " ")
     .trim();
 
@@ -63,42 +64,18 @@ const NORMALIZED_ASSET_USAGE_TEXT_TO_ID = Object.entries(ASSET_USAGE_TEXT_TO_ID)
   {}
 );
 
-const normalizeHeaderKey = (value) =>
-  (value || "")
-    .toString()
-    .trim()
-    .toLowerCase()
-    .replace(/[\W_]+/g, "");
+const VALID_ASSET_USAGE_IDS = new Set(Object.values(ASSET_USAGE_TEXT_TO_ID));
 
-const pickFieldValue = (row, candidates = []) => {
-  if (!row) return undefined;
-  const normalizedMap = Object.keys(row).reduce((acc, key) => {
-    acc[normalizeHeaderKey(key)] = key;
-    return acc;
-  }, {});
-
-  for (const candidate of candidates) {
-    const matchKey = normalizedMap[normalizeHeaderKey(candidate)];
-    if (matchKey !== undefined) {
-      return row[matchKey];
-    }
-  }
-  return undefined;
-};
-
-const resolveAssetUsageId = (rawValue) => {
+function resolveAssetUsageId(rawValue) {
   if (rawValue === null || rawValue === undefined) return null;
-  if (typeof rawValue === "number" && Number.isInteger(rawValue)) {
-    return rawValue;
-  }
-  const rawText = String(rawValue).trim();
+  if (typeof rawValue === "number" && Number.isInteger(rawValue)) return rawValue;
+  const rawText = String(rawValue || "").trim();
   if (!rawText) return null;
-  if (/^\d+$/.test(rawText)) {
-    return Number(rawText);
-  }
+  const numeric = Number(rawText);
+  if (Number.isInteger(numeric)) return numeric;
   const normalized = normalizeAssetUsageText(rawText);
   return NORMALIZED_ASSET_USAGE_TEXT_TO_ID[normalized] || null;
-};
+}
 
 // Robust Excel date parser
 function parseExcelDate(value) {
@@ -326,6 +303,16 @@ exports.processSubmitReportsQuicklyBatch = async (req, res) => {
       });
     }
 
+    let authUser = null;
+    try {
+      authUser = await User.findById(user_id).select("phone company").lean();
+    } catch (err) {
+      authUser = null;
+    }
+    const resolvedPhone = authUser?.phone || req.user?.phone || null;
+    const resolvedCompany = authUser?.company || req.user?.company || null;
+    const isGuestToken = Boolean(req.user?.guest) && !resolvedPhone;
+
     // 1) Build maps by basename (without extension)
     const excelMap = new Map(); // basename -> { file, pdfs: [] }
     excelFiles.forEach((file) => {
@@ -408,17 +395,11 @@ exports.processSubmitReportsQuicklyBatch = async (req, res) => {
         const assetName = row.asset_name || row["asset_name\n"] || row["Asset Name"];
         if (!assetName) return;
 
-        const assetUsageRaw = pickFieldValue(row, [
-          "asset_usage_id",
-          "asset usage id",
-          "asset usage",
-          "asset_usage_id\n",
-          "Asset Usage ID",
-        ]);
+        const assetUsageRaw = row.asset_usage_id || row["asset_usage_id\n"] || row["Asset Usage ID"] || "";
         const asset_usage_id = resolveAssetUsageId(assetUsageRaw);
-        if (!asset_usage_id || asset_usage_id <= 0) {
+        if (!asset_usage_id || asset_usage_id <= 0 || !VALID_ASSET_USAGE_IDS.has(asset_usage_id)) {
           throw badRequest(
-            `Asset "${assetName}" missing or invalid asset_usage_id in market sheet.`
+            `Asset "${assetName}" missing or invalid asset_usage_id "${assetUsageRaw}" in market sheet.`
           );
         }
 
@@ -471,17 +452,11 @@ exports.processSubmitReportsQuicklyBatch = async (req, res) => {
         const assetName = row.asset_name || row["asset_name\n"] || row["Asset Name"];
         if (!assetName) return;
 
-        const assetUsageRaw = pickFieldValue(row, [
-          "asset_usage_id",
-          "asset usage id",
-          "asset usage",
-          "asset_usage_id\n",
-          "Asset Usage ID",
-        ]);
+        const assetUsageRaw = row.asset_usage_id || row["asset_usage_id\n"] || row["Asset Usage ID"] || "";
         const asset_usage_id = resolveAssetUsageId(assetUsageRaw);
-        if (!asset_usage_id || asset_usage_id <= 0) {
+        if (!asset_usage_id || asset_usage_id <= 0 || !VALID_ASSET_USAGE_IDS.has(asset_usage_id)) {
           throw badRequest(
-            `Asset "${assetName}" missing or invalid asset_usage_id in cost sheet.`
+            `Asset "${assetName}" missing or invalid asset_usage_id "${assetUsageRaw}" in cost sheet.`
           );
         }
 
@@ -566,12 +541,10 @@ exports.processSubmitReportsQuicklyBatch = async (req, res) => {
       const city = firstAsset.city || "";
 
       // 3.6 Build document for this Excel
-      const isGuestToken = Boolean(req.user?.guest);
-
       docsToInsert.push({
         user_id,
-        user_phone: isGuestToken ? null : (req.user?.phone || null),
-        company: req.user?.company || null,
+        user_phone: isGuestToken ? null : resolvedPhone,
+        company: resolvedCompany || null,
         company_office_id: companyOfficeId,
         batch_id: batchId,
         source_excel_name: file.originalname,
@@ -632,7 +605,21 @@ exports.listSubmitReportsQuickly = async (req, res) => {
 
     const limit = Math.min(Number(req.query.limit) || 200, 500);
     const companyOfficeId = extractCompanyOfficeId(req);
-    const query = companyOfficeId ? { company_office_id: companyOfficeId } : {};
+    const unassignedOnly = ["1", "true", "yes"].includes(
+      String(req.query.unassigned || "").trim().toLowerCase()
+    );
+    const unassignedFilter = {
+      $or: [
+        { company_office_id: { $exists: false } },
+        { company_office_id: null },
+        { company_office_id: "" },
+      ],
+    };
+    const query = unassignedOnly
+      ? unassignedFilter
+      : companyOfficeId
+      ? { company_office_id: companyOfficeId }
+      : {};
     const reports = await SubmitReportsQuickly.find(query)
       .sort({ createdAt: -1, _id: -1 })
       .limit(limit);
@@ -660,10 +647,27 @@ exports.getQuickReportsByUserId = async (req, res) => {
     const page = Math.max(Number(req.query.page) || 1, 1);
     const skip = (page - 1) * limit;
     const companyOfficeId = extractCompanyOfficeId(req);
-
-    const query = companyOfficeId
-      ? { user_id, company_office_id: companyOfficeId }
-      : { user_id };
+    const unassignedOnly = ["1", "true", "yes"].includes(
+      String(req.query.unassigned || "").trim().toLowerCase()
+    );
+    const baseQuery = { user_id };
+    let query = baseQuery;
+    if (unassignedOnly) {
+      query = {
+        $and: [
+          baseQuery,
+          {
+            $or: [
+              { company_office_id: { $exists: false } },
+              { company_office_id: null },
+              { company_office_id: "" },
+            ],
+          },
+        ],
+      };
+    } else if (companyOfficeId) {
+      query = { ...baseQuery, company_office_id: companyOfficeId };
+    }
 
     const [reports, total] = await Promise.all([
       SubmitReportsQuickly.find(query)
@@ -729,6 +733,7 @@ exports.updateSubmitReportsQuickly = async (req, res) => {
       "client_name",
       "checked",
       "report_status",
+      "company_office_id",
     ];
 
     allowedFields.forEach((field) => {

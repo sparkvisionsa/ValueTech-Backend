@@ -14,7 +14,7 @@ const systemStateSchema = new mongoose.Schema({
     allowedModules: [{ type: String }],
     guestAccessEnabled: { type: Boolean, default: true },
     guestAccessLimit: { type: Number, default: 1 },
-    guestFreePoints: { type: Number, default: 5 },
+    guestFreePoints: { type: Number, default: 400 },
     ramTabsPerGb: { type: Number, default: 5 },
     updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     updatedByPhone: { type: String, default: ADMIN_PHONE },

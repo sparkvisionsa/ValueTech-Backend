@@ -1,10 +1,16 @@
 const bcrypt = require("bcryptjs");
+const mongoose = require("mongoose");
 const User = require("../../infrastructure/models/user");
 const Company = require("../../infrastructure/models/company");
 const Subscription = require("../../infrastructure/models/subscription");
 const Package = require("../../infrastructure/models/package");
 const StoredFile = require("../../infrastructure/models/storedFile");
 const SystemState = require("../../infrastructure/models/systemState");
+const SubmitReportsQuickly = require("../../infrastructure/models/SubmitReportsQuickly");
+const DuplicateReport = require("../../infrastructure/models/DuplicateReport");
+const Report = require("../../infrastructure/models/report");
+const UrgentReport = require("../../infrastructure/models/UrgentReport");
+const ElrajhiReport = require("../../infrastructure/models/ElrajhiReport");
 
 const {
   generateAccessToken,
@@ -32,10 +38,94 @@ const buildUserPayload = (user) => ({
 });
 
 const DEFAULT_GUEST_LIMIT = 1;
-const DEFAULT_GUEST_PACKAGE_ID =
-  process.env.GUEST_PACKAGE_ID || "692efc0d41a4767cfb91821b";
-const DEFAULT_GUEST_PACKAGE_NAME = "Guest Free Points";
-const DEFAULT_GUEST_PACKAGE_PRICE = 0.01;
+const DEFAULT_GUEST_FREE_POINTS = 400;
+const BOOTSTRAP_PACKAGE_ID =
+  process.env.BOOTSTRAP_PACKAGE_ID || "692efc0d41a4767cfb91821b";
+
+let phoneIndexEnsured = false;
+
+const ensureUserPhoneSparseIndex = async () => {
+  if (phoneIndexEnsured) return;
+  try {
+    const indexes = await User.collection.indexes();
+    const phoneIndex = indexes.find((idx) => idx.name === "phone_1");
+    const isSparseOrPartial =
+      Boolean(phoneIndex?.sparse) || Boolean(phoneIndex?.partialFilterExpression);
+
+    if (phoneIndex && !isSparseOrPartial) {
+      try {
+        await User.collection.dropIndex("phone_1");
+      } catch (dropErr) {
+        console.warn(
+          "[user.controller] Failed to drop phone index:",
+          dropErr?.message || dropErr,
+        );
+      }
+    }
+
+    if (!phoneIndex || !isSparseOrPartial) {
+      try {
+        await User.updateMany({ phone: null }, { $unset: { phone: "" } });
+      } catch (unsetErr) {
+        console.warn(
+          "[user.controller] Failed to unset null phones:",
+          unsetErr?.message || unsetErr,
+        );
+      }
+      try {
+        await User.collection.createIndex(
+          { phone: 1 },
+          { unique: true, sparse: true },
+        );
+      } catch (createErr) {
+        console.warn(
+          "[user.controller] Failed to create sparse phone index:",
+          createErr?.message || createErr,
+        );
+      }
+    }
+
+    phoneIndexEnsured = true;
+  } catch (err) {
+    console.warn("[user.controller] Failed to ensure phone index:", err?.message || err);
+  }
+};
+
+const buildUserIdFilter = (userId) => {
+  const userIdStr = String(userId || "").trim();
+  if (!userIdStr) return null;
+
+  const clauses = [{ user_id: userIdStr }];
+  if (mongoose.Types.ObjectId.isValid(userIdStr)) {
+    clauses.push({ user_id: new mongoose.Types.ObjectId(userIdStr) });
+  }
+  return { $or: clauses };
+};
+
+const buildMissingPhoneFilter = () => ({
+  $or: [
+    { user_phone: { $exists: false } },
+    { user_phone: null },
+    { user_phone: "" },
+  ],
+});
+
+const syncGuestReportPhones = async (userId, phone) => {
+  const userFilter = buildUserIdFilter(userId);
+  const phoneValue = String(phone || "").trim();
+  if (!userFilter || !phoneValue) return;
+
+  const query = { $and: [userFilter, buildMissingPhoneFilter()] };
+  const update = { $set: { user_phone: phoneValue } };
+
+  await Promise.all([
+    SubmitReportsQuickly.updateMany(query, update),
+    DuplicateReport.updateMany(query, update),
+    Report.updateMany(query, update),
+    UrgentReport.updateMany(query, update),
+    ElrajhiReport.updateMany(query, update),
+  ]);
+};
 
 const getBootstrapUses = (user) => {
   const uses = Number(user?.taqeem?.bootstrap_uses);
@@ -61,58 +151,39 @@ const getGuestAccessConfig = async () => {
   return { enabled, maxUses };
 };
 
-const resolveGuestFreePoints = async () => {
-  const state = await SystemState.getSingleton();
-  const configuredPoints = Number(state?.guestFreePoints);
-  return Number.isFinite(configuredPoints) && configuredPoints > 0
-    ? configuredPoints
-    : null;
+const resolveGuestFreePoints = async (pkg) => {
+  const systemState = await SystemState.getSingleton();
+  const configuredPoints = Number(systemState?.guestFreePoints);
+  if (Number.isFinite(configuredPoints) && configuredPoints > 0) {
+    return configuredPoints;
+  }
+
+  const pkgPoints = Number(pkg?.points);
+  if (Number.isFinite(pkgPoints) && pkgPoints > 0) {
+    return pkgPoints;
+  }
+
+  return DEFAULT_GUEST_FREE_POINTS;
 };
 
-const resolveGuestPackage = async (guestPoints = null) => {
-  let pkg = null;
+const ensureFreeSubscription = async (user, options = {}) => {
+  if (!user?._id) return null;
+  const { allowPhone = false } = options;
+  if (!allowPhone && user.phone) return null;
 
-  if (DEFAULT_GUEST_PACKAGE_ID) {
-    pkg = await Package.findById(DEFAULT_GUEST_PACKAGE_ID);
-  }
-
-  if (!pkg) {
-    pkg = await Package.findOne({
-      name: new RegExp(`^${DEFAULT_GUEST_PACKAGE_NAME}$`, "i"),
-    });
-  }
-
-  if (!pkg) {
-    const normalizedPoints =
-      Number.isFinite(guestPoints) && guestPoints > 0 ? guestPoints : 1;
-    pkg = await Package.create({
-      name: DEFAULT_GUEST_PACKAGE_NAME,
-      points: normalizedPoints,
-      price: DEFAULT_GUEST_PACKAGE_PRICE,
-    });
-  }
-
-  return pkg;
-};
-
-const ensureGuestSubscription = async (userId) => {
-  if (!userId) return null;
-  const existing = await Subscription.findOne({ userId }).sort({
-    createdAt: -1,
-  });
+  const existing = await Subscription.findOne({ userId: user._id });
   if (existing) return existing;
 
-  const guestPoints = await resolveGuestFreePoints();
-  const pkg = await resolveGuestPackage(guestPoints);
-  const normalizedPoints =
-    Number.isFinite(guestPoints) && guestPoints > 0
-      ? guestPoints
-      : Number(pkg?.points) || 1;
+  const pkg = await Package.findById(BOOTSTRAP_PACKAGE_ID);
+  if (!pkg) {
+    throw new Error("Package not found");
+  }
 
+  const freePoints = await resolveGuestFreePoints(pkg);
   return Subscription.create({
-    userId,
+    userId: user._id,
     packageId: pkg._id,
-    remainingPoints: normalizedPoints,
+    remainingPoints: freePoints,
   });
 };
 
@@ -120,6 +191,10 @@ exports.register = async (req, res) => {
   try {
     const { phone, password, type, companyName, companyHead, taqeemUsername } =
       req.body;
+    let authUser = null;
+    if (req.userId) {
+      authUser = await User.findById(req.userId);
+    }
 
     if (!phone || !password) {
       return res
@@ -234,12 +309,26 @@ exports.register = async (req, res) => {
         await user.save();
       }
 
-      if (trimmedTaqeem) {
-        user.taqeem = user.taqeem || {};
-        user.taqeem.username = trimmedTaqeem;
-        await user.save();
+    if (trimmedTaqeem) {
+      user.taqeem = user.taqeem || {};
+      user.taqeem.username = trimmedTaqeem;
+      await user.save();
+    }
+  }
+
+    if (user?.phone && (linkedExisting || authUser?._id || req.userId)) {
+      try {
+        const syncUserId = authUser?._id || req.userId || user._id;
+        await syncGuestReportPhones(syncUserId, user.phone);
+      } catch (syncErr) {
+        console.warn(
+          "[register] Failed to sync guest report phones:",
+          syncErr?.message || syncErr,
+        );
       }
     }
+
+    await ensureFreeSubscription(user, { allowPhone: true });
 
     const payload = {
       id: user._id.toString(),
@@ -328,8 +417,24 @@ exports.guestBootstrap = async (req, res) => {
     }
 
     if (!user) {
-      user = await User.create({});
+      await ensureUserPhoneSparseIndex();
+      try {
+        user = await User.create({});
+      } catch (createErr) {
+        const isDuplicatePhone =
+          createErr?.code === 11000 &&
+          (createErr?.keyPattern?.phone ||
+            String(createErr?.message || "").includes("phone_1"));
+        if (!isDuplicatePhone) {
+          throw createErr;
+        }
+
+        await ensureUserPhoneSparseIndex();
+        user = await User.create({});
+      }
     }
+
+    await ensureFreeSubscription(user);
 
     const isGuest = !user.phone;
     if (isGuest) {
@@ -429,6 +534,8 @@ exports.taqeemBootstrap = async (req, res) => {
         },
       });
 
+      await ensureFreeSubscription(user);
+
       const payload = {
         id: user._id.toString(),
         phone: null,
@@ -473,6 +580,8 @@ exports.taqeemBootstrap = async (req, res) => {
     }
 
     // CASE 4 — user exists, password correct, bootstrap not yet used → send token
+    await ensureFreeSubscription(user);
+
     const payload = {
       id: user._id.toString(),
       phone: null,
@@ -594,28 +703,7 @@ exports.newTaqeemBootstrap = async (req, res) => {
 
       console.log("[TAQEEM] user created", user._id);
 
-      const pkg = await Package.findById("692efc0d41a4767cfb91821b");
-      if (!pkg) {
-        console.log("[TAQEEM] bootstrap package missing");
-        throw new Error("Package not found");
-      }
-
-      console.log("[TAQEEM] bootstrap package loaded", pkg._id);
-
-      const systemState = await SystemState.getSingleton();
-      const configuredPoints = Number(systemState?.guestFreePoints);
-      const guestPoints =
-        Number.isFinite(configuredPoints) && configuredPoints > 0
-          ? configuredPoints
-          : pkg.points;
-
-      await Subscription.create({
-        userId: user._id,
-        packageId: pkg._id,
-        remainingPoints: guestPoints,
-      });
-
-      console.log("[TAQEEM] subscription created");
+      await ensureFreeSubscription(user);
 
       return issueAuthTokens(res, user, {
         status: "BOOTSTRAP_GRANTED",
@@ -652,6 +740,8 @@ exports.newTaqeemBootstrap = async (req, res) => {
 
     console.log("[TAQEEM] login success");
 
+    await ensureFreeSubscription(user);
+
     return issueAuthTokens(res, user, {
       status: "LOGIN_SUCCESS",
       reason: "TAQEEM_USERNAME_LOGIN",
@@ -678,26 +768,32 @@ exports.authorizeTaqeem = async (req, res) => {
       return res.status(404).json({ message: "User not found" });
     }
 
+    const checkPoints = async () => {
+      if (assetCount <= 0) return null;
+      const subscriptions = await Subscription.find({ userId });
+      const remainingPoints = subscriptions.reduce(
+        (sum, sub) => sum + (sub.remainingPoints || 0),
+        0,
+      );
+
+      if (assetCount > remainingPoints) {
+        return {
+          status: "INSUFFICIENT_POINTS",
+          required: assetCount,
+          available: remainingPoints,
+        };
+      }
+
+      return null;
+    };
+
     /**
      * 1) NORMAL USER FLOW (phone + password)
-     *    Only here we validate asset count
      */
     if (user.phone && user.password) {
-      if (assetCount > 0) {
-        const subscriptions = await Subscription.find({ userId });
-
-        const remainingPoints = subscriptions.reduce(
-          (sum, sub) => sum + (sub.remainingPoints || 0),
-          0,
-        );
-
-        if (assetCount > remainingPoints) {
-          return res.status(200).json({
-            status: "INSUFFICIENT_POINTS",
-            required: assetCount,
-            available: remainingPoints,
-          });
-        }
+      const insufficient = await checkPoints();
+      if (insufficient) {
+        return res.status(200).json(insufficient);
       }
 
       return res.json({
@@ -727,6 +823,11 @@ exports.authorizeTaqeem = async (req, res) => {
         status: "LOGIN_REQUIRED",
         reason: "BOOTSTRAP_LIMIT_REACHED",
       });
+    }
+
+    const insufficient = await checkPoints();
+    if (insufficient) {
+      return res.status(200).json(insufficient);
     }
 
     if (enabled) {
