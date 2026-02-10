@@ -332,7 +332,7 @@ const reportController = {
             const { success, message, data } = await createReportUC(
                 reportId.trim(),
                 payload,
-                userId,   // ONLY user id
+                req.user || userId,
                 companyOfficeId
             );
 

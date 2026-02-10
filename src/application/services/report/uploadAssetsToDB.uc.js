@@ -1,7 +1,30 @@
 const Report = require("../../../infrastructure/models/report");
 
-const createReportUC = async (report_id, reportData, userId, companyOfficeId = null) => {
+const resolveIdentity = (userContext) => {
+    if (userContext && typeof userContext === "object") {
+        return {
+            userId:
+                userContext.id ||
+                userContext._id ||
+                userContext.userId ||
+                userContext.user_id ||
+                null,
+            taqeemUser:
+                userContext.taqeemUser ||
+                userContext.taqeem?.username ||
+                null,
+        };
+    }
+
+    return {
+        userId: userContext || null,
+        taqeemUser: null,
+    };
+};
+
+const createReportUC = async (report_id, reportData, userContext, companyOfficeId = null) => {
     try {
+        const identity = resolveIdentity(userContext);
         const query = { report_id };
         if (companyOfficeId) {
             query.company_office_id = String(companyOfficeId).trim();
@@ -16,7 +39,8 @@ const createReportUC = async (report_id, reportData, userId, companyOfficeId = n
         const filteredData = {
             report_id,
             startSubmitTime: new Date(),
-            user_id: userId || null
+            user_id: identity.userId || null,
+            taqeem_user: identity.taqeemUser || null,
         };
 
         if (companyOfficeId) {

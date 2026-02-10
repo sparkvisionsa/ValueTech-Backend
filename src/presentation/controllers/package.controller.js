@@ -15,7 +15,7 @@ const deductPoints = require('../../application/services/packages/deductPoints')
 const { createNotification } = require('../../application/services/notification/notification.service');
 const { storeAttachments, storeUploadedFile, buildFileUrl } = require('../../application/services/files/fileStorage.service');
 
-const ADMIN_PHONE = process.env.ADMIN_PHONE || '011111';
+const ADMIN_PHONE = '000';
 const PREVIEW_LIMIT = 140;
 const REQUEST_POPULATE = [
     { path: 'userId', select: 'phone taqeem.username displayName' },

@@ -309,6 +309,7 @@ exports.processSubmitReportsQuicklyBatch = async (req, res) => {
     } catch (err) {
       authUser = null;
     }
+    const taqeemUser = req.user?.taqeemUser || authUser?.taqeemUser || null;
     const resolvedPhone = authUser?.phone || req.user?.phone || null;
     const resolvedCompany = authUser?.company || req.user?.company || null;
     const isGuestToken = Boolean(req.user?.guest) && !resolvedPhone;
@@ -544,6 +545,7 @@ exports.processSubmitReportsQuicklyBatch = async (req, res) => {
       docsToInsert.push({
         user_id,
         user_phone: isGuestToken ? null : resolvedPhone,
+        taqeem_user: taqeemUser || null,
         company: resolvedCompany || null,
         company_office_id: companyOfficeId,
         batch_id: batchId,
@@ -615,11 +617,16 @@ exports.listSubmitReportsQuickly = async (req, res) => {
         { company_office_id: "" },
       ],
     };
-    const query = unassignedOnly
+    const ownerQuery = req.user?.taqeemUser
+      ? { $or: [{ user_id: req.user.id }, { taqeem_user: req.user.taqeemUser }] }
+      : { user_id: req.user.id };
+
+    const scopedQuery = unassignedOnly
       ? unassignedFilter
       : companyOfficeId
       ? { company_office_id: companyOfficeId }
       : {};
+    const query = { $and: [ownerQuery, scopedQuery] };
     const reports = await SubmitReportsQuickly.find(query)
       .sort({ createdAt: -1, _id: -1 })
       .limit(limit);
@@ -650,7 +657,9 @@ exports.getQuickReportsByUserId = async (req, res) => {
     const unassignedOnly = ["1", "true", "yes"].includes(
       String(req.query.unassigned || "").trim().toLowerCase()
     );
-    const baseQuery = { user_id };
+    const baseQuery = req.user?.taqeemUser
+      ? { $or: [{ user_id }, { taqeem_user: req.user.taqeemUser }] }
+      : { user_id };
     let query = baseQuery;
     if (unassignedOnly) {
       query = {

@@ -65,10 +65,8 @@ const mapDocToForm = (doc) => ({
 const buildUserFilter = (user = {}, options = {}) => {
   const clauses = [];
   if (user.id) clauses.push({ user_id: user.id });
-  if (user.phone) {
-    clauses.push({ user_phone: user.phone });
-    clauses.push({ telephone: user.phone });
-  }
+  if (user._id) clauses.push({ user_id: user._id });
+  if (user.taqeemUser) clauses.push({ taqeem_user: user.taqeemUser });
   if (user.company) clauses.push({ company: user.company });
   const filter = clauses.length ? { $or: clauses } : {};
   const officeId = options.companyOfficeId;
@@ -528,7 +526,7 @@ exports.createDuplicateReport = async (req, res) => {
 
     const user = req.user || {};
     const companyOfficeId = extractCompanyOfficeId(req);
-    if (!user.id && !user.phone) {
+    if (!user.id && !user._id) {
       return res
         .status(401)
         .json({ success: false, message: "User context missing." });
@@ -600,8 +598,9 @@ exports.createDuplicateReport = async (req, res) => {
     const valuers = sanitizeValuers(payload.valuers);
 
     const duplicateReport = new DuplicateReport({
-      user_id: user.id,
+      user_id: user.id || user._id,
       user_phone: user.phone,
+      taqeem_user: user.taqeemUser || null,
       company: user.company || null,
       company_office_id: companyOfficeId,
 

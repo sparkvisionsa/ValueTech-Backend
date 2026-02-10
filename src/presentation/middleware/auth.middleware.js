@@ -11,6 +11,7 @@ const authMiddleware = (req, res, next) => {
         const decoded = verifyToken(token);
         console.log("decoded", decoded);
         req.userId = decoded.id; // Set the userId from the token payload
+        req.user = decoded;
         next();
     } catch (error) {
         return res.status(401).json({ message: 'Invalid or expired token' });

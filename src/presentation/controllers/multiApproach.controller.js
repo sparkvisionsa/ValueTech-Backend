@@ -545,6 +545,7 @@ exports.processMultiApproachBatch = async (req, res) => {
       docsToInsert.push({
         batchId,
         user_id: req.user?.id,
+        taqeem_user: req.user?.taqeemUser || null,
         company: req.user?.company || null,
         company_office_id: companyOfficeId,
         excel_name: file.originalname,
@@ -774,6 +775,7 @@ exports.createManualMultiApproachReport = async (req, res) => {
     const doc = {
       batchId,
       user_id: resolvedUserId,
+      taqeem_user: req.user?.taqeemUser || null,
       company: req.user?.company || null,
       company_office_id: companyOfficeId,
       excel_name,
@@ -861,11 +863,15 @@ exports.listMultiApproachReports = async (req, res) => {
         { company_office_id: "" },
       ],
     };
-    const query = unassignedOnly
+    const ownerQuery = req.user?.taqeemUser
+      ? { $or: [{ user_id: req.user.id }, { taqeem_user: req.user.taqeemUser }] }
+      : { user_id: req.user.id };
+    const scopedQuery = unassignedOnly
       ? unassignedFilter
       : companyOfficeId
       ? { company_office_id: companyOfficeId }
       : {};
+    const query = { $and: [ownerQuery, scopedQuery] };
     const reports = await MultiApproachReport.find(query)
       .sort({ createdAt: -1, _id: -1 })
       .limit(limit);
@@ -897,7 +903,9 @@ exports.getMultiApproachReportsByUserId = async (req, res) => {
     const status = req.query.status;
 
     // Build query based on filters
-    const baseQuery = { user_id };
+    const baseQuery = req.user?.taqeemUser
+      ? { $or: [{ user_id }, { taqeem_user: req.user.taqeemUser }] }
+      : { user_id };
     const companyOfficeId = extractCompanyOfficeId(req);
     const unassignedOnly = ["1", "true", "yes"].includes(
       String(req.query.unassigned || "").trim().toLowerCase()

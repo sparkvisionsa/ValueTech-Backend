@@ -1,6 +1,6 @@
 const mongoose = require('mongoose');
 
-const ADMIN_PHONE = process.env.ADMIN_PHONE || '011111';
+const ADMIN_PHONE = '000';
 const DEFAULT_SYSTEM = 'Electron System';
 
 const systemStateSchema = new mongoose.Schema({

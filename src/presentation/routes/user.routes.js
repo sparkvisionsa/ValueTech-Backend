@@ -12,9 +12,11 @@ router.post('/login', userController.login);
 
 router.post('/guest', optionalAuth, userController.guestBootstrap);
 router.post('/bootstrap', optionalAuth, userController.taqeemBootstrap);
-router.post('/new-bootstrap', userController.newTaqeemBootstrap);
+router.post('/new-bootstrap', optionalAuth, userController.newTaqeemBootstrap);
 
 router.post('/authorize', authMiddleware, userController.authorizeTaqeem);
 router.post('/profile-image', authMiddleware, profileUpload.single('profileImage'), userController.uploadProfileImage);
+router.post('/taqeem/sync', authMiddleware, userController.syncTaqeemSnapshot);
+router.post('/taqeem/default-company', authMiddleware, userController.setDefaultTaqeemCompany);
 
 module.exports = router;

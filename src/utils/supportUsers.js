@@ -1,4 +1,4 @@
-const ADMIN_PHONE = process.env.ADMIN_PHONE || '011111';
+const ADMIN_PHONE = '000';
 const SUPPORT_PHONES = ['022222', '033333'];
 
 const isAdminUser = (user) => user?.phone === ADMIN_PHONE;

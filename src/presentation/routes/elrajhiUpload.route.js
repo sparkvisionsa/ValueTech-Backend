@@ -30,21 +30,25 @@ router.post(
 
 router.get(
   "/export/:batchId",
+  authMiddleware,
   exportElrajhiBatch
 );
 
 router.get(
   "/batches",
+  authMiddleware,
   listElrajhiBatches
 );
 
 router.get(
   "/batches/:batchId/reports",
+  authMiddleware,
   getElrajhiBatchReports
 );
 
 router.get(
   "/reports/:reportId",
+  authMiddleware,
   getReportById
 );
 

@@ -57,6 +57,7 @@ const AssetSchema = new mongoose.Schema(
 const MultiApproachReportSchema = new mongoose.Schema(
   {
      user_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    taqeem_user: { type: String, default: null, index: true },
     company: { type: mongoose.Schema.Types.ObjectId, ref: 'Company', default: null },
     company_office_id: { type: String, default: null, index: true },
     batchId: {

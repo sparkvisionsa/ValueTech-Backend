@@ -1,6 +1,6 @@
 const User = require('../../infrastructure/models/user');
 
-const ADMIN_PHONE = process.env.ADMIN_PHONE || '011111';
+const ADMIN_PHONE = '000';
 
 const adminOnly = async (req, res, next) => {
     try {

@@ -99,6 +99,18 @@ function getPlaceholderPdfPath() {
   return fallbackPath;
 }
 
+const buildOwnerQuery = (userContext = {}) => {
+  const userId = userContext.id || userContext._id || null;
+  const taqeemUser = userContext.taqeemUser || null;
+  const clauses = [];
+
+  if (userId) clauses.push({ user_id: userId });
+  if (taqeemUser) clauses.push({ taqeem_user: taqeemUser });
+
+  if (!clauses.length) return {};
+  return clauses.length === 1 ? clauses[0] : { $or: clauses };
+};
+
 
 // 🔹 Same mojibake fix you used in processUpload
 function fixMojibake(str) {
@@ -378,6 +390,7 @@ exports.processElrajhiExcel = async (req, res) => {
       userContext.username ||
       "";
     const userId = userContext.id || userContext._id || null;
+    const taqeemUser = userContext.taqeemUser || null;
     const companyOfficeId = extractCompanyOfficeId(req);
 
     // if (!userPhone) {
@@ -580,6 +593,7 @@ exports.processElrajhiExcel = async (req, res) => {
         number_of_macros: 1,
         user_id: userId,
         user_phone: userPhone,
+        taqeem_user: taqeemUser,
         company: userContext.company || null,
         company_office_id: companyOfficeId,
 
@@ -633,7 +647,7 @@ exports.processElrajhiExcel = async (req, res) => {
     // Ensure all inserted docs carry the user phone (in case of missing values)
     await UrgentReport.updateMany(
       { batch_id },
-      { $set: { user_phone: userPhone, user_id: userId } }
+      { $set: { user_phone: userPhone, user_id: userId, taqeem_user: taqeemUser } }
     );
 
     console.log("====================================");
@@ -673,11 +687,15 @@ exports.exportElrajhiBatch = async (req, res) => {
 
     const companyOfficeId = extractCompanyOfficeId(req);
     const baseQuery = { batch_id: batchId };
+    const ownerQuery = buildOwnerQuery(req.user || {});
+    const query = Object.keys(ownerQuery).length
+      ? { $and: [baseQuery, ownerQuery] }
+      : baseQuery;
     if (companyOfficeId) {
-      baseQuery.company_office_id = companyOfficeId;
+      query.company_office_id = companyOfficeId;
     }
 
-    const reports = await UrgentReport.find(baseQuery)
+    const reports = await UrgentReport.find(query)
       .sort({ asset_id: 1, createdAt: 1 })
       .lean();
 
@@ -728,12 +746,17 @@ exports.exportElrajhiBatch = async (req, res) => {
 // List batches with counts to power the checker tab
 exports.listElrajhiBatches = async (req, res) => {
   try {
+    const ownerQuery = buildOwnerQuery(req.user || {});
+    const ownerMatchStage = Object.keys(ownerQuery).length
+      ? [{ $match: ownerQuery }]
+      : [];
     const companyOfficeId = extractCompanyOfficeId(req);
     const matchStage = companyOfficeId
       ? [{ $match: { company_office_id: companyOfficeId } }]
       : [];
 
     const batches = await UrgentReport.aggregate([
+      ...ownerMatchStage,
       ...matchStage,
       {
         $group: {
@@ -812,11 +835,15 @@ exports.getElrajhiBatchReports = async (req, res) => {
 
     const companyOfficeId = extractCompanyOfficeId(req);
     const baseQuery = { batch_id: batchId };
+    const ownerQuery = buildOwnerQuery(req.user || {});
+    const query = Object.keys(ownerQuery).length
+      ? { $and: [baseQuery, ownerQuery] }
+      : baseQuery;
     if (companyOfficeId) {
-      baseQuery.company_office_id = companyOfficeId;
+      query.company_office_id = companyOfficeId;
     }
 
-    const reports = await UrgentReport.find(baseQuery)
+    const reports = await UrgentReport.find(query)
       .sort({ createdAt: 1 })
       .lean();
 
@@ -879,12 +906,17 @@ exports.updateElrajhiReport = async (req, res) => {
 
     const isMongoId = mongoose.Types.ObjectId.isValid(reportId);
     const companyOfficeId = extractCompanyOfficeId(req);
+    const ownerQuery = buildOwnerQuery(req.user || {});
     const baseQuery = isMongoId
       ? { $or: [{ report_id: reportId }, { _id: reportId }] }
       : { report_id: reportId };
-    const query = companyOfficeId
-      ? { ...baseQuery, company_office_id: companyOfficeId }
-      : baseQuery;
+    const query = { ...baseQuery };
+    if (companyOfficeId) {
+      query.company_office_id = companyOfficeId;
+    }
+    if (Object.keys(ownerQuery).length) {
+      query.$and = query.$and ? [...query.$and, ownerQuery] : [ownerQuery];
+    }
 
     const report = await UrgentReport.findOne(query);
 
@@ -993,12 +1025,17 @@ exports.getReportById = async (req, res) => {
 
     const isMongoId = mongoose.Types.ObjectId.isValid(reportId);
     const companyOfficeId = extractCompanyOfficeId(req);
+    const ownerQuery = buildOwnerQuery(req.user || {});
     const baseQuery = isMongoId
       ? { $or: [{ report_id: reportId }, { _id: reportId }] }
       : { report_id: reportId };
-    const query = companyOfficeId
-      ? { ...baseQuery, company_office_id: companyOfficeId }
-      : baseQuery;
+    const query = { ...baseQuery };
+    if (companyOfficeId) {
+      query.company_office_id = companyOfficeId;
+    }
+    if (Object.keys(ownerQuery).length) {
+      query.$and = query.$and ? [...query.$and, ownerQuery] : [ownerQuery];
+    }
 
     const report = await UrgentReport.findOne(query).lean();
 
