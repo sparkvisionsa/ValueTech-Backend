@@ -24,6 +24,82 @@ function normalizeKey(str) {
     .trim();
 }
 
+const ASSET_USAGE_TEXT_TO_ID = {
+  "\u0632\u0631\u0627\u0639\u064a": 38,
+  "\u0628\u062d\u0631\u064a": 39,
+  "\u0627\u0644\u0645\u0648\u0627\u0635\u0644\u0627\u062a": 40,
+  "\u0637\u064a\u0631\u0627\u0646": 41,
+  "\u0627\u0644\u062e\u062f\u0645\u0627\u062a\u0020\u0627\u0644\u0644\u0648\u062c\u0633\u062a\u064a\u0629": 42,
+  "\u0637\u0628\u0627\u0639\u0629": 43,
+  "\u0628\u0646\u0627\u0621": 44,
+  "\u0627\u0644\u063a\u0632\u0644\u0020\u0648\u0627\u0644\u0646\u0633\u064a\u062c": 45,
+  "\u0636\u064a\u0627\u0641\u0629": 46,
+  "\u0627\u0644\u062a\u0639\u062f\u064a\u0646": 47,
+  "\u0627\u0644\u062f\u0628\u0627\u063a\u0629\u0020\u0648\u0627\u0644\u062a\u063a\u0644\u064a\u0641": 48,
+  "\u0627\u0644\u0627\u062a\u0635\u0627\u0644\u0627\u062a": 49,
+  "\u0627\u0644\u0646\u0641\u0637\u0020\u0648\u0627\u0644\u063a\u0627\u0632": 50,
+  "\u0627\u0644\u0645\u0633\u062a\u0634\u0641\u064a\u0627\u062a": 51,
+  "\u0627\u0644\u0623\u062f\u0648\u064a\u0629": 52,
+  "\u0645\u0623\u0643\u0648\u0644\u0627\u062a\u0020\u0648\u0645\u0634\u0631\u0648\u0628\u0627\u062a": 53,
+  "\u0645\u064a\u0627\u0647": 54,
+  "\u0645\u064a\u0627\u0647\u0020\u0627\u0644\u0635\u0631\u0641\u0020\u0627\u0644\u0635\u062d\u064a": 55,
+  "\u0627\u0644\u0643\u0647\u0631\u0628\u0627\u0621": 56,
+};
+
+const normalizeAssetUsageText = (value) =>
+  String(value || "")
+    .toLowerCase()
+    .normalize("NFC")
+    .replace(/[\u064B-\u065F\u0670\u06D6-\u06ED]/g, "")
+    .replace(/[\u0640]+/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const NORMALIZED_ASSET_USAGE_TEXT_TO_ID = Object.entries(ASSET_USAGE_TEXT_TO_ID).reduce(
+  (acc, [label, id]) => {
+    acc[normalizeAssetUsageText(label)] = id;
+    return acc;
+  },
+  {}
+);
+
+const normalizeHeaderKey = (value) =>
+  (value || "")
+    .toString()
+    .trim()
+    .toLowerCase()
+    .replace(/[\W_]+/g, "");
+
+const pickFieldValue = (row, candidates = []) => {
+  if (!row) return undefined;
+  const normalizedMap = Object.keys(row).reduce((acc, key) => {
+    acc[normalizeHeaderKey(key)] = key;
+    return acc;
+  }, {});
+
+  for (const candidate of candidates) {
+    const matchKey = normalizedMap[normalizeHeaderKey(candidate)];
+    if (matchKey !== undefined) {
+      return row[matchKey];
+    }
+  }
+  return undefined;
+};
+
+const resolveAssetUsageId = (rawValue) => {
+  if (rawValue === null || rawValue === undefined) return null;
+  if (typeof rawValue === "number" && Number.isInteger(rawValue)) {
+    return rawValue;
+  }
+  const rawText = String(rawValue).trim();
+  if (!rawText) return null;
+  if (/^\d+$/.test(rawText)) {
+    return Number(rawText);
+  }
+  const normalized = normalizeAssetUsageText(rawText);
+  return NORMALIZED_ASSET_USAGE_TEXT_TO_ID[normalized] || null;
+};
+
 // Robust Excel date parser
 function parseExcelDate(value) {
   if (value === null || value === undefined || value === "") return null;
@@ -332,7 +408,14 @@ exports.processSubmitReportsQuicklyBatch = async (req, res) => {
         const assetName = row.asset_name || row["asset_name\n"] || row["Asset Name"];
         if (!assetName) return;
 
-        const asset_usage_id = Number(row.asset_usage_id || row["asset_usage_id\n"] || row["Asset Usage ID"] || 0);
+        const assetUsageRaw = pickFieldValue(row, [
+          "asset_usage_id",
+          "asset usage id",
+          "asset usage",
+          "asset_usage_id\n",
+          "Asset Usage ID",
+        ]);
+        const asset_usage_id = resolveAssetUsageId(assetUsageRaw);
         if (!asset_usage_id || asset_usage_id <= 0) {
           throw badRequest(
             `Asset "${assetName}" missing or invalid asset_usage_id in market sheet.`
@@ -388,7 +471,14 @@ exports.processSubmitReportsQuicklyBatch = async (req, res) => {
         const assetName = row.asset_name || row["asset_name\n"] || row["Asset Name"];
         if (!assetName) return;
 
-        const asset_usage_id = Number(row.asset_usage_id || row["asset_usage_id\n"] || row["Asset Usage ID"] || 0);
+        const assetUsageRaw = pickFieldValue(row, [
+          "asset_usage_id",
+          "asset usage id",
+          "asset usage",
+          "asset_usage_id\n",
+          "Asset Usage ID",
+        ]);
+        const asset_usage_id = resolveAssetUsageId(assetUsageRaw);
         if (!asset_usage_id || asset_usage_id <= 0) {
           throw badRequest(
             `Asset "${assetName}" missing or invalid asset_usage_id in cost sheet.`

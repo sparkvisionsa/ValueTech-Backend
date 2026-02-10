@@ -32,6 +32,10 @@ const buildUserPayload = (user) => ({
 });
 
 const DEFAULT_GUEST_LIMIT = 1;
+const DEFAULT_GUEST_PACKAGE_ID =
+  process.env.GUEST_PACKAGE_ID || "692efc0d41a4767cfb91821b";
+const DEFAULT_GUEST_PACKAGE_NAME = "Guest Free Points";
+const DEFAULT_GUEST_PACKAGE_PRICE = 0.01;
 
 const getBootstrapUses = (user) => {
   const uses = Number(user?.taqeem?.bootstrap_uses);
@@ -55,6 +59,61 @@ const getGuestAccessConfig = async () => {
   const maxUses =
     Number.isFinite(limitRaw) && limitRaw > 0 ? limitRaw : DEFAULT_GUEST_LIMIT;
   return { enabled, maxUses };
+};
+
+const resolveGuestFreePoints = async () => {
+  const state = await SystemState.getSingleton();
+  const configuredPoints = Number(state?.guestFreePoints);
+  return Number.isFinite(configuredPoints) && configuredPoints > 0
+    ? configuredPoints
+    : null;
+};
+
+const resolveGuestPackage = async (guestPoints = null) => {
+  let pkg = null;
+
+  if (DEFAULT_GUEST_PACKAGE_ID) {
+    pkg = await Package.findById(DEFAULT_GUEST_PACKAGE_ID);
+  }
+
+  if (!pkg) {
+    pkg = await Package.findOne({
+      name: new RegExp(`^${DEFAULT_GUEST_PACKAGE_NAME}$`, "i"),
+    });
+  }
+
+  if (!pkg) {
+    const normalizedPoints =
+      Number.isFinite(guestPoints) && guestPoints > 0 ? guestPoints : 1;
+    pkg = await Package.create({
+      name: DEFAULT_GUEST_PACKAGE_NAME,
+      points: normalizedPoints,
+      price: DEFAULT_GUEST_PACKAGE_PRICE,
+    });
+  }
+
+  return pkg;
+};
+
+const ensureGuestSubscription = async (userId) => {
+  if (!userId) return null;
+  const existing = await Subscription.findOne({ userId }).sort({
+    createdAt: -1,
+  });
+  if (existing) return existing;
+
+  const guestPoints = await resolveGuestFreePoints();
+  const pkg = await resolveGuestPackage(guestPoints);
+  const normalizedPoints =
+    Number.isFinite(guestPoints) && guestPoints > 0
+      ? guestPoints
+      : Number(pkg?.points) || 1;
+
+  return Subscription.create({
+    userId,
+    packageId: pkg._id,
+    remainingPoints: normalizedPoints,
+  });
 };
 
 exports.register = async (req, res) => {
@@ -134,10 +193,7 @@ exports.register = async (req, res) => {
       return target;
     };
 
-    if (authUser && !authUser.phone) {
-      user = await applyRegistration(authUser);
-      linkedExisting = true;
-    } else if (existingUserByTaqeem) {
+    if (existingUserByTaqeem) {
       user = existingUserByTaqeem;
       if (user.phone) {
         return res.status(409).json({
@@ -276,6 +332,9 @@ exports.guestBootstrap = async (req, res) => {
     }
 
     const isGuest = !user.phone;
+    if (isGuest) {
+      await ensureGuestSubscription(user._id);
+    }
     const payload = {
       id: user._id.toString(),
       phone: user.phone || null,
