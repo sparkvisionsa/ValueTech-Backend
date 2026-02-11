@@ -691,6 +691,8 @@ exports.register = async (req, res) => {
 exports.login = async (req, res) => {
   try {
     const { phone, password } = req.body || {};
+    const guestUserId = safeString(req.body?.guestUserId || req.userId);
+    const guestTaqeemUser = normalizeTaqeemUsername(req.body?.guestTaqeemUser);
     const trimmedPhone = normalizedPhone(phone);
 
     if (!trimmedPhone || !password) {
@@ -711,6 +713,29 @@ exports.login = async (req, res) => {
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
       return res.status(401).json({ message: "Invalid credentials." });
+    }
+
+    const resolvedTaqeemUser =
+      normalizeTaqeemUsername(user?.taqeem?.username) || guestTaqeemUser || null;
+
+    if (guestUserId && String(guestUserId) !== String(user._id)) {
+      try {
+        await moveReportOwnership(guestUserId, user._id, resolvedTaqeemUser);
+      } catch (ownershipErr) {
+        console.warn(
+          "[login] Failed to move guest report ownership:",
+          ownershipErr?.message || ownershipErr,
+        );
+      }
+    }
+
+    try {
+      await syncGuestReportPhones(user._id, user.phone);
+    } catch (syncErr) {
+      console.warn(
+        "[login] Failed to sync user phone on reports:",
+        syncErr?.message || syncErr,
+      );
     }
 
     const payload = buildTokenPayload(user);
