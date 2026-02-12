@@ -5,7 +5,9 @@ const dummyPdfPath = path.resolve("uploads/static/dummy_placeholder.pdf");
 
 const SubmitReportsQuickly = require("../../infrastructure/models/SubmitReportsQuickly");
 const User = require("../../infrastructure/models/user");
-const { createNotification } = require("../../application/services/notification/notification.service");
+const {
+  createNotification,
+} = require("../../application/services/notification/notification.service");
 const { extractCompanyOfficeId } = require("../utils/companyOffice");
 
 // ------------ helpers ------------
@@ -18,33 +20,29 @@ function badRequest(message) {
 
 function normalizeKey(str) {
   if (!str) return "";
-  return str
-    .toString()
-    .normalize("NFC")
-    .replace(/\s+/g, " ")
-    .trim();
+  return str.toString().normalize("NFC").replace(/\s+/g, " ").trim();
 }
 
 const ASSET_USAGE_TEXT_TO_ID = {
-  "زراعي": 38,
-  "بحري": 39,
-  "المواصلات": 40,
-  "طيران": 41,
+  زراعي: 38,
+  بحري: 39,
+  المواصلات: 40,
+  طيران: 41,
   "الخدمات اللوجستية": 42,
-  "طباعة": 43,
-  "بناء": 44,
+  طباعة: 43,
+  بناء: 44,
   "الغزل والنسيج": 45,
-  "ضيافة": 46,
-  "التعدين": 47,
+  ضيافة: 46,
+  التعدين: 47,
   "الدباغة والتغليف": 48,
-  "الاتصالات": 49,
+  الاتصالات: 49,
   "النفط والغاز": 50,
-  "المستشفيات": 51,
-  "الأدوية": 52,
+  المستشفيات: 51,
+  الأدوية: 52,
   "مأكولات ومشروبات": 53,
-  "مياه": 54,
+  مياه: 54,
   "مياه الصرف الصحي": 55,
-  "الكهرباء": 56,
+  الكهرباء: 56,
 };
 
 const normalizeAssetUsageText = (value) =>
@@ -56,19 +54,19 @@ const normalizeAssetUsageText = (value) =>
     .replace(/\s+/g, " ")
     .trim();
 
-const NORMALIZED_ASSET_USAGE_TEXT_TO_ID = Object.entries(ASSET_USAGE_TEXT_TO_ID).reduce(
-  (acc, [label, id]) => {
-    acc[normalizeAssetUsageText(label)] = id;
-    return acc;
-  },
-  {}
-);
+const NORMALIZED_ASSET_USAGE_TEXT_TO_ID = Object.entries(
+  ASSET_USAGE_TEXT_TO_ID,
+).reduce((acc, [label, id]) => {
+  acc[normalizeAssetUsageText(label)] = id;
+  return acc;
+}, {});
 
 const VALID_ASSET_USAGE_IDS = new Set(Object.values(ASSET_USAGE_TEXT_TO_ID));
 
 function resolveAssetUsageId(rawValue) {
   if (rawValue === null || rawValue === undefined) return null;
-  if (typeof rawValue === "number" && Number.isInteger(rawValue)) return rawValue;
+  if (typeof rawValue === "number" && Number.isInteger(rawValue))
+    return rawValue;
   const rawText = String(rawValue || "").trim();
   if (!rawText) return null;
   const numeric = Number(rawText);
@@ -177,18 +175,27 @@ function extractValuersFromRow(row) {
   // Normalize key names (handle variations like "valuerName", "valuer_name", "valuer Name", etc.)
   const normalizeKey = (key) => {
     if (!key) return "";
-    return String(key).toLowerCase().trim().replace(/[\s_]+/g, "");
+    return String(key)
+      .toLowerCase()
+      .trim()
+      .replace(/[\s_]+/g, "");
   };
 
   // Find all valuer-related columns
   const valuerColumns = {};
-  keys.forEach(key => {
+  keys.forEach((key) => {
     const normalized = normalizeKey(key);
     if (normalized.includes("valuerid") || normalized.includes("valuerid")) {
       valuerColumns.id = key;
-    } else if (normalized.includes("valuername") || normalized.includes("valuername")) {
+    } else if (
+      normalized.includes("valuername") ||
+      normalized.includes("valuername")
+    ) {
       valuerColumns.name = key;
-    } else if (normalized.includes("percentage") || normalized.includes("percent")) {
+    } else if (
+      normalized.includes("percentage") ||
+      normalized.includes("percent")
+    ) {
       valuerColumns.percentage = key;
     }
   });
@@ -197,11 +204,20 @@ function extractValuersFromRow(row) {
   if (valuerColumns.id || valuerColumns.name || valuerColumns.percentage) {
     // Try to extract multiple valuers (valuerId1, valuerName1, percentage1, etc.)
     for (let i = 1; i <= 10; i++) {
-      const idKey = row[`valuerId${i}`] || row[`valuer_id${i}`] || row[`valuerId_${i}`] ||
+      const idKey =
+        row[`valuerId${i}`] ||
+        row[`valuer_id${i}`] ||
+        row[`valuerId_${i}`] ||
         (i === 1 && (row.valuerId || row.valuer_id || row["valuerId"]));
-      const nameKey = row[`valuerName${i}`] || row[`valuer_name${i}`] || row[`valuerName_${i}`] ||
+      const nameKey =
+        row[`valuerName${i}`] ||
+        row[`valuer_name${i}`] ||
+        row[`valuerName_${i}`] ||
         (i === 1 && (row.valuerName || row.valuer_name || row["valuerName"]));
-      const pctKey = row[`percentage${i}`] || row[`percent${i}`] || row[`percentage_${i}`] ||
+      const pctKey =
+        row[`percentage${i}`] ||
+        row[`percent${i}`] ||
+        row[`percentage_${i}`] ||
         (i === 1 && (row.percentage || row.percent || row["percentage"]));
 
       if (nameKey) {
@@ -217,15 +233,20 @@ function extractValuersFromRow(row) {
   // If no structured valuers found, try to find any valuer columns by pattern
   if (valuers.length === 0) {
     // Look for columns that might contain valuer data
-    const valuerNameKeys = keys.filter(k => {
+    const valuerNameKeys = keys.filter((k) => {
       const normalized = normalizeKey(k);
-      return normalized.includes("valuername") || normalized.includes("valuername") ||
-        normalized.includes("valuer") && normalized.includes("name");
+      return (
+        normalized.includes("valuername") ||
+        normalized.includes("valuername") ||
+        (normalized.includes("valuer") && normalized.includes("name"))
+      );
     });
 
-    const percentageKeys = keys.filter(k => {
+    const percentageKeys = keys.filter((k) => {
       const normalized = normalizeKey(k);
-      return normalized.includes("percentage") || normalized.includes("percent");
+      return (
+        normalized.includes("percentage") || normalized.includes("percent")
+      );
     });
 
     // Try to match valuer names with percentages
@@ -248,7 +269,7 @@ function extractValuersFromRow(row) {
 function aggregateValuers(allValuers) {
   const valuerMap = new Map();
 
-  allValuers.forEach(valuer => {
+  allValuers.forEach((valuer) => {
     if (!valuer || !valuer.valuerName) return;
     const name = String(valuer.valuerName).trim();
     const pct = Number(valuer.percentage) || 0;
@@ -265,13 +286,13 @@ function aggregateValuers(allValuers) {
   // Convert to array and normalize percentages to sum to 100
   const valuers = Array.from(valuerMap.entries()).map(([name, totalPct]) => ({
     valuerName: name,
-    percentage: totalPct
+    percentage: totalPct,
   }));
 
   // Normalize to 100% if total is not 100
   const total = valuers.reduce((sum, v) => sum + v.percentage, 0);
   if (total > 0 && Math.abs(total - 100) > 0.01) {
-    valuers.forEach(v => {
+    valuers.forEach((v) => {
       v.percentage = Math.round((v.percentage / total) * 100);
     });
   }
@@ -293,8 +314,10 @@ exports.processSubmitReportsQuicklyBatch = async (req, res) => {
 
     const excelFiles = req.files.excels;
     const pdfFiles = req.files.pdfs || [];
-    const skipPdfUpload = req.body.skipPdfUpload === 'true' || req.body.skipPdfUpload === true;
-    const user_id = req.user?.id || req.user?._id || req.user?.userId || req.user?.user_id;
+    const skipPdfUpload =
+      req.body.skipPdfUpload === "true" || req.body.skipPdfUpload === true;
+    const user_id =
+      req.user?.id || req.user?._id || req.user?.userId || req.user?.user_id;
     const companyOfficeId = extractCompanyOfficeId(req);
     if (!user_id) {
       return res.status(401).json({
@@ -313,29 +336,76 @@ exports.processSubmitReportsQuicklyBatch = async (req, res) => {
     const resolvedPhone = authUser?.phone || req.user?.phone || null;
     const resolvedCompany = authUser?.company || req.user?.company || null;
     const isGuestToken = Boolean(req.user?.guest) && !resolvedPhone;
+    // Add this normalization function (same as frontend)
+    const normalizeKey = (value) =>
+      (value || "")
+        .toString()
+        .trim()
+        .toLowerCase()
+        .replace(/[\W_]+/g, "");
+
+    // Optional: Add stripExtension if you use it in backend
+    const stripExtension = (filename = "") => filename.replace(/\.[^.]+$/, "");
+
+    console.log("=== PDF PATH DEBUGGING ===");
+    console.log("1. All keys in req.body:", Object.keys(req.body));
+    console.log();
+    console.log(
+      "2. PDF files received:",
+      pdfFiles.map((f) => f.originalname),
+    );
+    console.log("3. skipPdfUpload:", skipPdfUpload);
+    console.log(
+      "4. PDF path map keys from body:",
+      Object.keys(req.body).filter(
+        (k) =>
+          k !== "skipPdfUpload" &&
+          k !== "companyOfficeId" &&
+          k !== "dummy_pdf_path",
+      ),
+    );
 
     // 1) Build maps by basename (without extension)
-    const excelMap = new Map(); // basename -> { file, pdfs: [] }
+    const excelMap = new Map(); // basename -> { file, pdfPath: '' }
     excelFiles.forEach((file) => {
       const baseName = normalizeKey(path.parse(file.originalname).name);
       if (!excelMap.has(baseName)) {
-        excelMap.set(baseName, { file, pdfs: [] });
+        excelMap.set(baseName, { file, pdfPath: "" });
       } else {
         throw badRequest(
-          `Duplicate Excel base name detected: "${baseName}". Please ensure unique Excel file names.`
+          `Duplicate Excel base name detected: "${baseName}". Please ensure unique Excel file names.`,
         );
       }
     });
 
-    // Group PDFs by matching Excel basename
+    // Match PDFs to Excels by basename and get absolute paths from request body
     const unmatchedPdfs = [];
     pdfFiles.forEach((file) => {
-      const pdfBase = normalizeKey(path.parse(file.originalname).name);
+      const fileName = file.originalname;
+      const fileNameWithoutExt = stripExtension(fileName); // Use stripExtension
+      const pdfBase = normalizeKey(fileNameWithoutExt);
       const bucket = excelMap.get(pdfBase);
       if (!bucket) {
         unmatchedPdfs.push(file.originalname);
       } else {
-        bucket.pdfs.push(path.resolve(file.path));
+        // Get the absolute path from request body (sent from frontend)
+        const absolutePath = req.body[pdfBase]; // The key is the normalized basename
+
+        // CRITICAL FIX: Only use absolute path if it exists, otherwise don't set a fallback
+        if (
+          absolutePath &&
+          absolutePath !== "undefined" &&
+          absolutePath !== "null"
+        ) {
+          bucket.pdfPath = absolutePath;
+        } else {
+          // If no absolute path is provided from frontend, this is an error for real PDFs
+          if (!skipPdfUpload) {
+            console.warn(
+              `No absolute path provided for PDF: ${file.originalname}`,
+            );
+          }
+        }
       }
     });
 
@@ -348,10 +418,12 @@ exports.processSubmitReportsQuicklyBatch = async (req, res) => {
       });
     }
 
-    // Ensure every Excel has at least one PDF (use dummy if skipPdfUpload or no PDF)
-    excelMap.forEach((value, baseName) => {
-      if (value.pdfs.length === 0 || skipPdfUpload) {
-        value.pdfs.push(dummyPdfPath);
+    // Ensure every Excel has a PDF path (use dummy if skipPdfUpload or no PDF)
+    const dummyPath = req.body.dummy_pdf_path || "dummy_placeholder.pdf";
+    excelMap.forEach((value) => {
+      // Only set dummy path if no pdfPath was set AND (skipPdfUpload OR no matching PDF)
+      if (!value.pdfPath) {
+        value.pdfPath = dummyPath;
       }
     });
 
@@ -362,14 +434,14 @@ exports.processSubmitReportsQuicklyBatch = async (req, res) => {
     const docsToInsert = [];
 
     // 3) Process each Excel file
-    for (const [baseName, { file, pdfs }] of excelMap.entries()) {
+    for (const [baseName, { file, pdfPath }] of excelMap.entries()) {
       const excelPath = file.path;
       let workbook;
       try {
         workbook = xlsx.readFile(excelPath);
       } catch (readErr) {
         throw badRequest(
-          `Excel "${file.originalname}" could not be read. Please confirm it is a valid .xlsx/.xls file.`
+          `Excel "${file.originalname}" could not be read. Please confirm it is a valid .xlsx/.xls file.`,
         );
       }
 
@@ -383,8 +455,12 @@ exports.processSubmitReportsQuicklyBatch = async (req, res) => {
         });
       }
 
-      const marketRows = marketSheet ? xlsx.utils.sheet_to_json(marketSheet, { defval: "" }) : [];
-      const costRows = costSheet ? xlsx.utils.sheet_to_json(costSheet, { defval: "" }) : [];
+      const marketRows = marketSheet
+        ? xlsx.utils.sheet_to_json(marketSheet, { defval: "" })
+        : [];
+      const costRows = costSheet
+        ? xlsx.utils.sheet_to_json(costSheet, { defval: "" })
+        : [];
 
       // 3.1 Build assets from market + cost sheets
       const assets = [];
@@ -393,38 +469,49 @@ exports.processSubmitReportsQuicklyBatch = async (req, res) => {
 
       // --- market assets ---
       marketRows.forEach((row, index) => {
-        const assetName = row.asset_name || row["asset_name\n"] || row["Asset Name"];
+        const assetName =
+          row.asset_name || row["asset_name\n"] || row["Asset Name"];
         if (!assetName) return;
 
-        const assetUsageRaw = row.asset_usage_id || row["asset_usage_id\n"] || row["Asset Usage ID"] || "";
+        const assetUsageRaw =
+          row.asset_usage_id ||
+          row["asset_usage_id\n"] ||
+          row["Asset Usage ID"] ||
+          "";
         const asset_usage_id = resolveAssetUsageId(assetUsageRaw);
-        if (!asset_usage_id || asset_usage_id <= 0 || !VALID_ASSET_USAGE_IDS.has(asset_usage_id)) {
+        if (
+          !asset_usage_id ||
+          asset_usage_id <= 0 ||
+          !VALID_ASSET_USAGE_IDS.has(asset_usage_id)
+        ) {
           throw badRequest(
-            `Asset "${assetName}" missing or invalid asset_usage_id "${assetUsageRaw}" in market sheet.`
+            `Asset "${assetName}" missing or invalid asset_usage_id "${assetUsageRaw}" in market sheet.`,
           );
         }
 
         const final_value = Number(
-          row.final_value || row["final_value\n"] || row["Final Value"] || 0
+          row.final_value || row["final_value\n"] || row["Final Value"] || 0,
         );
         if (!Number.isInteger(final_value) || final_value <= 0) {
           throw badRequest(
-            `Asset "${assetName}" has invalid final_value in market sheet. Must be a positive integer.`
+            `Asset "${assetName}" has invalid final_value in market sheet. Must be a positive integer.`,
           );
         }
 
         assets_total_value += final_value;
 
-        const inspection_date = formatDateYyyyMmDd(
-          parseExcelDate(
-            row.inspection_date || row["inspection_date\n"] || row["Inspection Date"]
-          )
-        ) || todayDate;
+        const inspection_date =
+          formatDateYyyyMmDd(
+            parseExcelDate(
+              row.inspection_date ||
+                row["inspection_date\n"] ||
+                row["Inspection Date"],
+            ),
+          ) || todayDate;
 
         const region = String(row.region || row["Region"] || "").trim();
         const city = String(row.city || row["City"] || "").trim();
 
-        // Extract valuers from this row
         const rowValuers = extractValuersFromRow(row);
         allValuers.push(...rowValuers);
 
@@ -434,7 +521,7 @@ exports.processSubmitReportsQuicklyBatch = async (req, res) => {
           asset_usage_id: asset_usage_id,
           region: region || "",
           city: city || "",
-          owner_name: "0", // Default value
+          owner_name: "0",
           inspection_date: inspection_date,
           source_sheet: "market",
           final_value: final_value,
@@ -450,14 +537,23 @@ exports.processSubmitReportsQuicklyBatch = async (req, res) => {
 
       // --- cost assets ---
       costRows.forEach((row, index) => {
-        const assetName = row.asset_name || row["asset_name\n"] || row["Asset Name"];
+        const assetName =
+          row.asset_name || row["asset_name\n"] || row["Asset Name"];
         if (!assetName) return;
 
-        const assetUsageRaw = row.asset_usage_id || row["asset_usage_id\n"] || row["Asset Usage ID"] || "";
+        const assetUsageRaw =
+          row.asset_usage_id ||
+          row["asset_usage_id\n"] ||
+          row["Asset Usage ID"] ||
+          "";
         const asset_usage_id = resolveAssetUsageId(assetUsageRaw);
-        if (!asset_usage_id || asset_usage_id <= 0 || !VALID_ASSET_USAGE_IDS.has(asset_usage_id)) {
+        if (
+          !asset_usage_id ||
+          asset_usage_id <= 0 ||
+          !VALID_ASSET_USAGE_IDS.has(asset_usage_id)
+        ) {
           throw badRequest(
-            `Asset "${assetName}" missing or invalid asset_usage_id "${assetUsageRaw}" in cost sheet.`
+            `Asset "${assetName}" missing or invalid asset_usage_id "${assetUsageRaw}" in cost sheet.`,
           );
         }
 
@@ -471,31 +567,37 @@ exports.processSubmitReportsQuicklyBatch = async (req, res) => {
 
         if (final_value_raw === "" || final_value_raw === null) {
           throw badRequest(
-            `Asset "${assetName}" has no final_value in cost sheet. It must be an integer.`
+            `Asset "${assetName}" has no final_value in cost sheet. It must be an integer.`,
           );
         }
 
         const final_value_num = Number(final_value_raw);
 
-        if (isNaN(final_value_num) || !Number.isInteger(final_value_num) || final_value_num <= 0) {
+        if (
+          isNaN(final_value_num) ||
+          !Number.isInteger(final_value_num) ||
+          final_value_num <= 0
+        ) {
           throw badRequest(
-            `Asset "${assetName}" has invalid final_value "${final_value_raw}". Must be a positive integer.`
+            `Asset "${assetName}" has invalid final_value "${final_value_raw}". Must be a positive integer.`,
           );
         }
 
         const final_value = final_value_num;
         assets_total_value += final_value;
 
-        const inspection_date = formatDateYyyyMmDd(
-          parseExcelDate(
-            row.inspection_date || row["inspection_date\n"] || row["Inspection Date"]
-          )
-        ) || todayDate;
+        const inspection_date =
+          formatDateYyyyMmDd(
+            parseExcelDate(
+              row.inspection_date ||
+                row["inspection_date\n"] ||
+                row["Inspection Date"],
+            ),
+          ) || todayDate;
 
         const region = String(row.region || row["Region"] || "").trim();
         const city = String(row.city || row["City"] || "").trim();
 
-        // Extract valuers from this row
         const rowValuers = extractValuersFromRow(row);
         allValuers.push(...rowValuers);
 
@@ -505,7 +607,7 @@ exports.processSubmitReportsQuicklyBatch = async (req, res) => {
           asset_usage_id: asset_usage_id,
           region: region || "",
           city: city || "",
-          owner_name: "0", // Default value
+          owner_name: "0",
           inspection_date: inspection_date,
           source_sheet: "cost",
           final_value: final_value,
@@ -526,17 +628,11 @@ exports.processSubmitReportsQuicklyBatch = async (req, res) => {
         });
       }
 
-      // 3.2 Aggregate valuers from all assets
       const valuers = aggregateValuers(allValuers);
-
-      // 3.3 Calculate number of macros (number of assets)
       const number_of_macros = assets.length;
-
-      // 3.4 Generate title and client_name: عدد الأصول (number_of_macros) + القيمة النهائية (assets_total_value)
       const title = `عدد الأصول (${number_of_macros}) + القيمة النهائية (${assets_total_value})`;
       const client_name = `عدد الأصول (${number_of_macros}) + القيمة النهائية (${assets_total_value})`;
 
-      // 3.5 Get region and city from first asset (or use empty)
       const firstAsset = assets[0];
       const region = firstAsset.region || "";
       const city = firstAsset.city || "";
@@ -568,7 +664,7 @@ exports.processSubmitReportsQuicklyBatch = async (req, res) => {
         valuers: valuers,
         final_value: assets_total_value,
         asset_data: assets,
-        pdf_path: pdfs[0] || dummyPdfPath,
+        pdf_path: pdfPath, // This will now be the absolute path from client
         report_status: "new",
         submit_state: 0,
       });
@@ -581,6 +677,10 @@ exports.processSubmitReportsQuicklyBatch = async (req, res) => {
     console.log("📦 SUBMIT REPORTS QUICKLY BATCH IMPORT SUCCESS");
     console.log("BatchId:", batchId);
     console.log("Inserted reports:", created.length);
+    console.log(
+      "PDF paths stored:",
+      created.map((r) => r.pdf_path),
+    );
     console.log("====================================");
 
     return res.json({
@@ -591,7 +691,10 @@ exports.processSubmitReportsQuicklyBatch = async (req, res) => {
     });
   } catch (err) {
     console.error("Submit reports quickly batch upload error:", err);
-    const statusCode = err?.statusCode && Number.isInteger(err.statusCode) ? err.statusCode : 500;
+    const statusCode =
+      err?.statusCode && Number.isInteger(err.statusCode)
+        ? err.statusCode
+        : 500;
     return res.status(statusCode).json({
       status: "failed",
       error: err?.message || "Unexpected error",
@@ -608,7 +711,9 @@ exports.listSubmitReportsQuickly = async (req, res) => {
     const limit = Math.min(Number(req.query.limit) || 200, 500);
     const companyOfficeId = extractCompanyOfficeId(req);
     const unassignedOnly = ["1", "true", "yes"].includes(
-      String(req.query.unassigned || "").trim().toLowerCase()
+      String(req.query.unassigned || "")
+        .trim()
+        .toLowerCase(),
     );
     const unassignedFilter = {
       $or: [
@@ -618,14 +723,16 @@ exports.listSubmitReportsQuickly = async (req, res) => {
       ],
     };
     const ownerQuery = req.user?.taqeemUser
-      ? { $or: [{ user_id: req.user.id }, { taqeem_user: req.user.taqeemUser }] }
+      ? {
+          $or: [{ user_id: req.user.id }, { taqeem_user: req.user.taqeemUser }],
+        }
       : { user_id: req.user.id };
 
     const scopedQuery = unassignedOnly
       ? unassignedFilter
       : companyOfficeId
-      ? { company_office_id: companyOfficeId }
-      : {};
+        ? { company_office_id: companyOfficeId }
+        : {};
     const query = { $and: [ownerQuery, scopedQuery] };
     const reports = await SubmitReportsQuickly.find(query)
       .sort({ createdAt: -1, _id: -1 })
@@ -641,7 +748,8 @@ exports.listSubmitReportsQuickly = async (req, res) => {
 exports.getQuickReportsByUserId = async (req, res) => {
   try {
     console.log("user", req.user);
-    const user_id = req.user?.id || req.user?._id || req.user?.userId || req.user?.user_id;
+    const user_id =
+      req.user?.id || req.user?._id || req.user?.userId || req.user?.user_id;
 
     if (!user_id) {
       return res.status(401).json({
@@ -655,7 +763,9 @@ exports.getQuickReportsByUserId = async (req, res) => {
     const skip = (page - 1) * limit;
     const companyOfficeId = extractCompanyOfficeId(req);
     const unassignedOnly = ["1", "true", "yes"].includes(
-      String(req.query.unassigned || "").trim().toLowerCase()
+      String(req.query.unassigned || "")
+        .trim()
+        .toLowerCase(),
     );
     const baseQuery = req.user?.taqeemUser
       ? { $or: [{ user_id }, { taqeem_user: req.user.taqeemUser }] }
@@ -717,7 +827,9 @@ exports.updateSubmitReportsQuickly = async (req, res) => {
     const reportId = req.params.id;
     const report = await SubmitReportsQuickly.findById(reportId);
     if (!report) {
-      return res.status(404).json({ success: false, message: "Report not found." });
+      return res
+        .status(404)
+        .json({ success: false, message: "Report not found." });
     }
 
     const updates = {};
@@ -770,7 +882,9 @@ exports.deleteSubmitReportsQuickly = async (req, res) => {
     const reportId = req.params.id;
     const report = await SubmitReportsQuickly.findById(reportId);
     if (!report) {
-      return res.status(404).json({ success: false, message: "Report not found." });
+      return res
+        .status(404)
+        .json({ success: false, message: "Report not found." });
     }
 
     await report.deleteOne();
@@ -785,8 +899,8 @@ exports.deleteSubmitReportsQuickly = async (req, res) => {
         data: {
           reportId,
           view: "submit-reports-quickly",
-          action: "deleted"
-        }
+          action: "deleted",
+        },
       });
     } catch (notifyError) {
       console.warn("Failed to create delete notification", notifyError);
@@ -808,21 +922,37 @@ exports.updateSubmitReportsQuicklyAsset = async (req, res) => {
     const reportId = req.params.id;
     const assetIndex = Number(req.params.index);
     if (!Number.isInteger(assetIndex) || assetIndex < 0) {
-      return res.status(400).json({ success: false, message: "Invalid asset index." });
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid asset index." });
     }
 
     const report = await SubmitReportsQuickly.findById(reportId);
     if (!report) {
-      return res.status(404).json({ success: false, message: "Report not found." });
+      return res
+        .status(404)
+        .json({ success: false, message: "Report not found." });
     }
 
-    if (!Array.isArray(report.asset_data) || assetIndex >= report.asset_data.length) {
-      return res.status(400).json({ success: false, message: "Asset index out of range." });
+    if (
+      !Array.isArray(report.asset_data) ||
+      assetIndex >= report.asset_data.length
+    ) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Asset index out of range." });
     }
 
     const asset = report.asset_data[assetIndex];
     const updates = {};
-    const allowedFields = ["asset_name", "asset_usage_id", "final_value", "region", "city", "inspection_date"];
+    const allowedFields = [
+      "asset_name",
+      "asset_usage_id",
+      "final_value",
+      "region",
+      "city",
+      "inspection_date",
+    ];
 
     allowedFields.forEach((field) => {
       if (req.body[field] !== undefined) {
@@ -850,16 +980,25 @@ exports.deleteSubmitReportsQuicklyAsset = async (req, res) => {
     const reportId = req.params.id;
     const assetIndex = Number(req.params.index);
     if (!Number.isInteger(assetIndex) || assetIndex < 0) {
-      return res.status(400).json({ success: false, message: "Invalid asset index." });
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid asset index." });
     }
 
     const report = await SubmitReportsQuickly.findById(reportId);
     if (!report) {
-      return res.status(404).json({ success: false, message: "Report not found." });
+      return res
+        .status(404)
+        .json({ success: false, message: "Report not found." });
     }
 
-    if (!Array.isArray(report.asset_data) || assetIndex >= report.asset_data.length) {
-      return res.status(400).json({ success: false, message: "Asset index out of range." });
+    if (
+      !Array.isArray(report.asset_data) ||
+      assetIndex >= report.asset_data.length
+    ) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Asset index out of range." });
     }
 
     report.asset_data.splice(assetIndex, 1);
@@ -871,4 +1010,3 @@ exports.deleteSubmitReportsQuicklyAsset = async (req, res) => {
     return res.status(500).json({ success: false, message: error.message });
   }
 };
-

@@ -776,24 +776,6 @@ exports.updateReportTimestamp = async (req, res) => {
       });
     }
 
-    const validTypes = [
-      "editStartTime",
-      "editEndTime",
-      "retryEditStartTime",
-      "retryEditEndTime",
-      "flowStartTime",
-      "flowEndTime",
-      "startSubmitTime",
-      "endSubmitTime",
-    ];
-
-    if (!validTypes.includes(type)) {
-      return res.status(400).json({
-        success: false,
-        message: `Invalid type. Must be one of: ${validTypes.join(", ")}`,
-      });
-    }
-
     const found = await findReportAcrossCollectionsWithId(record_id);
     if (!found) {
       return res.status(404).json({

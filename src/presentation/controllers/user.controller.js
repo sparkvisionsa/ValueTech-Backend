@@ -937,7 +937,130 @@ exports.taqeemBootstrap = async (req, res) => {
 
 exports.newTaqeemBootstrap = async (req, res) => {
   try {
+<<<<<<< HEAD
     return await handleTaqeemBootstrap(req, res);
+=======
+    const { username } = req.body;
+
+    console.log("[TAQEEM] bootstrap request received");
+
+    /**
+     * 0) Already authenticated normal user
+     */
+    if (req.userId) {
+      console.log("[TAQEEM] already authenticated user", req.userId);
+
+      return res.json({
+        status: "NORMAL_ACCOUNT",
+        userId: req.userId,
+      });
+    }
+
+    /**
+     * 1) Validate input
+     */
+    if (!username?.trim()) {
+      console.log("[TAQEEM] username missing");
+
+      return res.status(400).json({
+        status: "ERROR",
+        message: "Username required",
+      });
+    }
+
+    const trimmedUsername = username.trim();
+    console.log("[TAQEEM] username:", trimmedUsername);
+
+    /**
+     * 2) Fetch existing taqeem user
+     */
+    console.log("[TAQEEM] looking up user");
+
+    let user = await User.findOne({ "taqeem.username": trimmedUsername });
+
+    /**
+     * 3) NEW USER
+     */
+    if (!user) {
+      console.log("[TAQEEM] new taqeem user, creating");
+
+      user = await User.create({
+        taqeem: {
+          username: trimmedUsername,
+          password: "",
+          bootstrap_used: false,
+          bootstrap_uses: 0,
+        },
+      });
+
+      console.log("[TAQEEM] user created", user._id);
+
+      const pkg = await Package.findById("692efc0d41a4767cfb91821b");
+      if (!pkg) {
+        console.log("[TAQEEM] bootstrap package missing");
+        throw new Error("Package not found");
+      }
+
+      console.log("[TAQEEM] bootstrap package loaded", pkg._id);
+
+      const systemState = await SystemState.getSingleton();
+      const configuredPoints = Number(systemState?.guestFreePoints);
+      const guestPoints =
+        Number.isFinite(configuredPoints) && configuredPoints > 0
+          ? configuredPoints
+          : pkg.points;
+
+      await Subscription.create({
+        userId: user._id,
+        packageId: pkg._id,
+        remainingPoints: guestPoints,
+      });
+
+      console.log("[TAQEEM] subscription created");
+
+      return issueAuthTokens(res, user, {
+        status: "BOOTSTRAP_GRANTED",
+        reason: "NEW_TAQEEM_USER",
+      });
+    }
+
+    /**
+     * 4) EXISTING USER
+     */
+    console.log("[TAQEEM] existing user", user._id);
+
+    const isGuest = !user.phone;
+
+    if (isGuest) {
+      console.log("[TAQEEM] user is guest");
+
+      const { enabled, maxUses } = await getGuestAccessConfig();
+      const uses = getBootstrapUses(user);
+
+      console.log("[TAQEEM] guest usage", uses, "/", maxUses);
+
+      if (enabled && uses >= maxUses) {
+        console.log("[TAQEEM] guest limit reached");
+
+        return res.status(403).json({
+          status: "LOGIN_REQUIRED",
+          reason: "GUEST_LIMIT_REACHED",
+        });
+      }
+    } else {
+      return {
+        status: "LOGIN_REQUIRED",
+        reason: "USER_ALREADY_EXISTS",
+      };
+    }
+
+    console.log("[TAQEEM] login success");
+
+    return issueAuthTokens(res, user, {
+      status: "LOGIN_SUCCESS",
+      reason: "TAQEEM_USERNAME_LOGIN",
+    });
+>>>>>>> da895b1 (fixing file paths)
   } catch (err) {
     console.error("[TAQEEM] error", err);
 

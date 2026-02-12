@@ -4,9 +4,10 @@ const Report = require("../../infrastructure/models/report");
 const ElrajhiReport = require("../../infrastructure/models/ElrajhiReport");
 const UrgentReport = require("../../infrastructure/models/UrgentReport");
 const path = require("path");
-const { createNotification } = require("../../application/services/notification/notification.service");
+const {
+  createNotification,
+} = require("../../application/services/notification/notification.service");
 const { extractCompanyOfficeId } = require("../utils/companyOffice");
-
 
 const normalizeKey = (value = "") =>
   value
@@ -14,6 +15,8 @@ const normalizeKey = (value = "") =>
     .trim()
     .toLowerCase()
     .replace(/[\s_\-]+/g, "");
+
+const stripExtension = (filename = "") => filename.replace(/\.[^.]+$/, "");
 
 const asDateString = (value) => {
   if (!value) return "";
@@ -31,7 +34,8 @@ const toBool = (value) => {
 };
 
 const cleanArray = (value) => {
-  if (Array.isArray(value)) return value.filter((v) => v !== undefined && v !== null && v !== "");
+  if (Array.isArray(value))
+    return value.filter((v) => v !== undefined && v !== null && v !== "");
   if (typeof value === "string" && value.trim()) {
     return value
       .split(",")
@@ -42,22 +46,43 @@ const cleanArray = (value) => {
 };
 
 const mapDocToForm = (doc) => ({
-  report_id: doc.report_id || doc.batch_id || (doc._id ? doc._id.toString() : ""),
+  report_id:
+    doc.report_id || doc.batch_id || (doc._id ? doc._id.toString() : ""),
   title: doc.title || "",
-  purpose_id: doc.purpose_id !== undefined && doc.purpose_id !== null ? String(doc.purpose_id) : "to set",
-  value_premise_id: doc.value_premise_id !== undefined && doc.value_premise_id !== null ? String(doc.value_premise_id) : "to set",
+  purpose_id:
+    doc.purpose_id !== undefined && doc.purpose_id !== null
+      ? String(doc.purpose_id)
+      : "to set",
+  value_premise_id:
+    doc.value_premise_id !== undefined && doc.value_premise_id !== null
+      ? String(doc.value_premise_id)
+      : "to set",
   report_type: doc.report_type || "",
   valued_at: asDateString(doc.valued_at),
   submitted_at: asDateString(doc.submitted_at),
-  assumptions: doc.assumptions !== undefined && doc.assumptions !== null ? String(doc.assumptions) : "",
-  special_assumptions: doc.special_assumptions !== undefined && doc.special_assumptions !== null ? String(doc.special_assumptions) : "",
-  value: doc.value !== undefined && doc.value !== null ? String(doc.value) : doc.final_value !== undefined && doc.final_value !== null ? String(doc.final_value) : "",
+  assumptions:
+    doc.assumptions !== undefined && doc.assumptions !== null
+      ? String(doc.assumptions)
+      : "",
+  special_assumptions:
+    doc.special_assumptions !== undefined && doc.special_assumptions !== null
+      ? String(doc.special_assumptions)
+      : "",
+  value:
+    doc.value !== undefined && doc.value !== null
+      ? String(doc.value)
+      : doc.final_value !== undefined && doc.final_value !== null
+        ? String(doc.final_value)
+        : "",
   client_name: doc.client_name || "",
   owner_name: doc.owner_name || "",
   telephone: doc.telephone || doc.user_phone || "",
   email: doc.email || "",
   inspection_date: asDateString(doc.inspection_date),
-  valuation_currency: doc.valuation_currency !== undefined && doc.valuation_currency !== null ? String(doc.valuation_currency) : "to set",
+  valuation_currency:
+    doc.valuation_currency !== undefined && doc.valuation_currency !== null
+      ? String(doc.valuation_currency)
+      : "to set",
   has_other_users: !!doc.has_other_users,
   report_users: doc.report_users || [],
 });
@@ -97,9 +122,18 @@ const extractAssetsFromExcel = (excelPath, defaults = {}) => {
 
     rows.forEach((row) => {
       const normalized = normalizeRowKeys(row);
-      const assetName = normalized.assetname || normalized.asset || normalized.assetnamear || "";
-      const finalValue = normalized.finalvalue || normalized["final value"] || "";
-      const assetUsageId = normalized.assetusageid || normalized.asset_usage_id || normalized.usageid || "";
+      const assetName =
+        normalized.assetname ||
+        normalized.asset ||
+        normalized.assetnamear ||
+        "";
+      const finalValue =
+        normalized.finalvalue || normalized["final value"] || "";
+      const assetUsageId =
+        normalized.assetusageid ||
+        normalized.asset_usage_id ||
+        normalized.usageid ||
+        "";
       const region = normalized.region || normalized.regionname || "";
       const city = normalized.city || normalized.cityname || "";
       const assetId = normalized.id || normalized.assetid || "";
@@ -118,16 +152,27 @@ const extractAssetsFromExcel = (excelPath, defaults = {}) => {
         inspection_date: defaults.inspection_date || "",
         owner_name: defaults.owner_name || "",
         submitState: 0,
-        final_value: finalValue !== undefined && finalValue !== null ? String(finalValue) : "",
+        final_value:
+          finalValue !== undefined && finalValue !== null
+            ? String(finalValue)
+            : "",
         asset_usage_id: assetUsageId ? String(assetUsageId) : "",
         value_base: 1,
         production_capacity: "0",
         production_capacity_measuring_unit: "0",
         product_type: "0",
         market_approach: isMarket ? 1 : undefined,
-        market_approach_value: isMarket ? (finalValue !== undefined && finalValue !== null ? String(finalValue) : "") : undefined,
+        market_approach_value: isMarket
+          ? finalValue !== undefined && finalValue !== null
+            ? String(finalValue)
+            : ""
+          : undefined,
         cost_approach: isCost ? 1 : undefined,
-        cost_approach_value: isCost ? (finalValue !== undefined && finalValue !== null ? String(finalValue) : "") : undefined,
+        cost_approach_value: isCost
+          ? finalValue !== undefined && finalValue !== null
+            ? String(finalValue)
+            : ""
+          : undefined,
         country: "المملكة العربية السعودية",
         region: region ? String(region) : "",
         city: city ? String(city) : "",
@@ -145,7 +190,9 @@ const sanitizeValuers = (valuers = []) => {
   return valuers
     .map((valuer) => ({
       valuer_name: valuer.valuer_name || valuer.valuerName || "",
-      contribution_percentage: Number(valuer.contribution_percentage ?? valuer.percentage ?? 0),
+      contribution_percentage: Number(
+        valuer.contribution_percentage ?? valuer.percentage ?? 0,
+      ),
     }))
     .filter((valuer) => valuer.valuer_name);
 };
@@ -176,7 +223,10 @@ exports.getLatestForUser = async (req, res) => {
 
     const pushCandidate = (doc, source) => {
       if (!doc) return;
-      const ts = doc.createdAt || doc.updatedAt || (doc._id && doc._id.getTimestamp && doc._id.getTimestamp());
+      const ts =
+        doc.createdAt ||
+        doc.updatedAt ||
+        (doc._id && doc._id.getTimestamp && doc._id.getTimestamp());
       candidates.push({
         source,
         doc,
@@ -189,7 +239,9 @@ exports.getLatestForUser = async (req, res) => {
     pushCandidate(urgent, "urgentreports");
 
     if (!candidates.length) {
-      return res.status(404).json({ success: false, message: "No reports found for this user." });
+      return res
+        .status(404)
+        .json({ success: false, message: "No reports found for this user." });
     }
 
     const latest = candidates.sort((a, b) => b.createdAt - a.createdAt)[0];
@@ -228,10 +280,6 @@ exports.getLatestForUser = async (req, res) => {
 //   }
 // };
 
-
-
-
-
 exports.listReportsForUser = async (req, res) => {
   try {
     if (!req.user) {
@@ -244,7 +292,9 @@ exports.listReportsForUser = async (req, res) => {
     const companyOfficeId = unassignedOnly ? null : extractCompanyOfficeId(req);
     const baseQuery = buildUserReportQuery(req.user, null, { companyOfficeId });
     if (!baseQuery) {
-      return res.status(401).json({ success: false, message: "User context missing." });
+      return res
+        .status(401)
+        .json({ success: false, message: "User context missing." });
     }
 
     // -------- pagination params --------
@@ -337,12 +387,16 @@ exports.updateDuplicateReport = async (req, res) => {
     const companyOfficeId = extractCompanyOfficeId(req);
     const query = buildUserReportQuery(req.user, reportId, { companyOfficeId });
     if (!query) {
-      return res.status(401).json({ success: false, message: "User context missing." });
+      return res
+        .status(401)
+        .json({ success: false, message: "User context missing." });
     }
 
     const report = await DuplicateReport.findOne(query);
     if (!report) {
-      return res.status(404).json({ success: false, message: "Report not found." });
+      return res
+        .status(404)
+        .json({ success: false, message: "Report not found." });
     }
 
     const updates = {};
@@ -404,12 +458,16 @@ exports.deleteDuplicateReport = async (req, res) => {
     const companyOfficeId = extractCompanyOfficeId(req);
     const query = buildUserReportQuery(req.user, reportId, { companyOfficeId });
     if (!query) {
-      return res.status(401).json({ success: false, message: "User context missing." });
+      return res
+        .status(401)
+        .json({ success: false, message: "User context missing." });
     }
 
     const result = await DuplicateReport.deleteOne(query);
     if (!result.deletedCount) {
-      return res.status(404).json({ success: false, message: "Report not found." });
+      return res
+        .status(404)
+        .json({ success: false, message: "Report not found." });
     }
 
     try {
@@ -422,8 +480,8 @@ exports.deleteDuplicateReport = async (req, res) => {
         data: {
           reportId,
           view: "duplicate-report",
-          action: "deleted"
-        }
+          action: "deleted",
+        },
       });
     } catch (notifyError) {
       console.warn("Failed to create delete notification", notifyError);
@@ -444,27 +502,44 @@ exports.updateDuplicateReportAsset = async (req, res) => {
     const reportId = req.params.id;
     const assetIndex = Number(req.params.index);
     if (!Number.isInteger(assetIndex) || assetIndex < 0) {
-      return res.status(400).json({ success: false, message: "Invalid asset index." });
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid asset index." });
     }
 
     const companyOfficeId = extractCompanyOfficeId(req);
     const query = buildUserReportQuery(req.user, reportId, { companyOfficeId });
     if (!query) {
-      return res.status(401).json({ success: false, message: "User context missing." });
+      return res
+        .status(401)
+        .json({ success: false, message: "User context missing." });
     }
 
     const report = await DuplicateReport.findOne(query);
     if (!report) {
-      return res.status(404).json({ success: false, message: "Report not found." });
+      return res
+        .status(404)
+        .json({ success: false, message: "Report not found." });
     }
 
-    if (!Array.isArray(report.asset_data) || assetIndex >= report.asset_data.length) {
-      return res.status(400).json({ success: false, message: "Asset index out of range." });
+    if (
+      !Array.isArray(report.asset_data) ||
+      assetIndex >= report.asset_data.length
+    ) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Asset index out of range." });
     }
 
     const asset = report.asset_data[assetIndex];
     const updates = {};
-    const allowedFields = ["asset_name", "asset_usage_id", "final_value", "region", "city"];
+    const allowedFields = [
+      "asset_name",
+      "asset_usage_id",
+      "final_value",
+      "region",
+      "city",
+    ];
 
     allowedFields.forEach((field) => {
       if (req.body[field] !== undefined) {
@@ -491,22 +566,33 @@ exports.deleteDuplicateReportAsset = async (req, res) => {
     const reportId = req.params.id;
     const assetIndex = Number(req.params.index);
     if (!Number.isInteger(assetIndex) || assetIndex < 0) {
-      return res.status(400).json({ success: false, message: "Invalid asset index." });
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid asset index." });
     }
 
     const companyOfficeId = extractCompanyOfficeId(req);
     const query = buildUserReportQuery(req.user, reportId, { companyOfficeId });
     if (!query) {
-      return res.status(401).json({ success: false, message: "User context missing." });
+      return res
+        .status(401)
+        .json({ success: false, message: "User context missing." });
     }
 
     const report = await DuplicateReport.findOne(query);
     if (!report) {
-      return res.status(404).json({ success: false, message: "Report not found." });
+      return res
+        .status(404)
+        .json({ success: false, message: "Report not found." });
     }
 
-    if (!Array.isArray(report.asset_data) || assetIndex >= report.asset_data.length) {
-      return res.status(400).json({ success: false, message: "Asset index out of range." });
+    if (
+      !Array.isArray(report.asset_data) ||
+      assetIndex >= report.asset_data.length
+    ) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Asset index out of range." });
     }
 
     report.asset_data.splice(assetIndex, 1);
@@ -518,7 +604,6 @@ exports.deleteDuplicateReportAsset = async (req, res) => {
     return res.status(500).json({ success: false, message: error.message });
   }
 };
-
 
 exports.createDuplicateReport = async (req, res) => {
   try {
@@ -540,37 +625,68 @@ exports.createDuplicateReport = async (req, res) => {
         .json({ success: false, message: "Excel file is required." });
     }
 
-    /**
-     * pdf is OPTIONAL from frontend:
-     * - if provided => use uploaded pdf path
-     * - if not provided => use dummy pdf at uploads/static/dummy_placeholder.pdf
-     */
+    // Get skipPdfUpload flag from request body
+    const skipPdfUpload =
+      req.body.skipPdfUpload === "true" || req.body.skipPdfUpload === true;
+
     const pdfFile = req.files?.pdf?.[0];
 
     // IMPORTANT: use your requested path: \uploads\static\dummy_placeholder.pdf
-    // Using process.cwd() so it resolves from project root regardless of OS.
     const dummyPdfPath = path.resolve(
       process.cwd(),
       "uploads",
       "static",
-      "dummy_placeholder.pdf"
+      "dummy_placeholder.pdf",
     );
 
-    // If user didn't upload pdf, fallback to dummy
-    if (!pdfFile && !fs.existsSync(dummyPdfPath)) {
-      return res.status(500).json({
-        success: false,
-        message:
-          'Dummy PDF not found on server at "uploads/static/dummy_placeholder.pdf".',
-      });
+    // Determine PDF path - priority:
+    // 1. Absolute path from request body (if provided)
+    // 2. Uploaded file path (if provided)
+    // 3. Dummy path (if skipPdfUpload or no PDF)
+    let pdfPath = dummyPdfPath;
+
+    if (pdfFile) {
+      // Look for absolute path in request body - key is "pdfPath"
+      // Since there's only one PDF, we can use a fixed key
+      const absolutePath = req.body.pdfPath;
+
+      // Use absolute path from frontend if available
+      if (
+        absolutePath &&
+        absolutePath !== "undefined" &&
+        absolutePath !== "null"
+      ) {
+        pdfPath = absolutePath;
+        console.log(`Using absolute path from frontend: ${pdfPath}`);
+      } else {
+        // Fallback to uploaded file path
+        pdfPath = path.resolve(pdfFile.path);
+        console.log(
+          `No absolute path provided, using uploaded file path: ${pdfPath}`,
+        );
+      }
+    } else if (!skipPdfUpload) {
+      // No PDF file uploaded and not skipping - use dummy path
+      if (!fs.existsSync(dummyPdfPath)) {
+        return res.status(500).json({
+          success: false,
+          message:
+            'Dummy PDF not found on server at "uploads/static/dummy_placeholder.pdf".',
+        });
+      }
+      pdfPath = dummyPdfPath;
     }
 
-    // Decide final pdf path (real upload OR dummy)
-    const pdfPath = pdfFile ? path.resolve(pdfFile.path) : dummyPdfPath;
+    if (Array.isArray(pdfPath)) {
+      pdfPath = pdfPath[0];
+    }
 
-    console.log("pdfPath", pdfPath, "pdfFile", pdfFile);
+    console.log("Final PDF path:", pdfPath);
+    console.log("skipPdfUpload:", skipPdfUpload);
+    console.log("PDF file uploaded:", !!pdfFile);
 
     // Parse formData JSON if provided
+
     let payload = req.body || {};
     if (payload.formData) {
       try {
@@ -617,9 +733,7 @@ exports.createDuplicateReport = async (req, res) => {
       valuation_currency: payload.valuation_currency || "to set",
       owner_name: payload.owner_name || "",
 
-      // ✅ ALWAYS set pdf_path:
-      // - real uploaded pdf path if provided
-      // - dummy placeholder path if not provided
+      // ✅ ALWAYS set pdf_path with the resolved path
       pdf_path: pdfPath,
 
       client_name: payload.client_name || "",

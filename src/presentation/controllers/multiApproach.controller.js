@@ -3,12 +3,14 @@ const path = require("path");
 const fs = require("fs");
 const dummyPdfPath = path.resolve("uploads/static/dummy_placeholder.pdf");
 
-
 const MultiApproachReport = require("../../infrastructure/models/MultiApproachReport");
-const { createNotification } = require("../../application/services/notification/notification.service");
+const {
+  createNotification,
+} = require("../../application/services/notification/notification.service");
 const { extractCompanyOfficeId } = require("../utils/companyOffice");
 
 // ------------ helpers ------------
+// Add these normalization functions (same as in frontend)
 
 function badRequest(message) {
   const err = new Error(message);
@@ -18,11 +20,7 @@ function badRequest(message) {
 
 function normalizeKey(str) {
   if (!str) return "";
-  return str
-    .toString()
-    .normalize("NFC")
-    .replace(/\s+/g, " ")
-    .trim();
+  return str.toString().normalize("NFC").replace(/\s+/g, " ").trim();
 }
 
 // Robust Excel date parser (handles Date, Excel serial, xlsx cell objects, and common strings)
@@ -130,7 +128,6 @@ function toSafeBasename(value, fallback) {
   return normalized || fallback || `manual-${Date.now()}`;
 }
 
-
 // Try to read total report value from Report Info row
 function getReportTotalValue(reportRow) {
   // Adjust these keys to match your real Excel headers
@@ -169,11 +166,7 @@ function normalizeValuers(list) {
   return list
     .map((valuer) => {
       if (!valuer) return null;
-      const name =
-        valuer.valuer_name ||
-        valuer.valuerName ||
-        valuer.name ||
-        "";
+      const name = valuer.valuer_name || valuer.valuerName || valuer.name || "";
       if (!name) return null;
       const pctRaw =
         valuer.contribution_percentage ??
@@ -201,6 +194,14 @@ exports.processMultiApproachBatch = async (req, res) => {
         error: "At least one Excel file (field 'excels') is required.",
       });
     }
+    const normalizeKey = (value) =>
+      (value || "")
+        .toString()
+        .trim()
+        .toLowerCase()
+        .replace(/[\W_]+/g, "");
+
+    const stripExtension = (filename = "") => filename.replace(/\.[^.]+$/, "");
 
     const excelFiles = req.files.excels;
     const pdfFiles = req.files.pdfs || [];
@@ -219,12 +220,12 @@ exports.processMultiApproachBatch = async (req, res) => {
       if (normalized.length) {
         const totalPct = normalized.reduce(
           (sum, v) => sum + Number(v.contribution_percentage || 0),
-          0
+          0,
         );
         const rounded = Math.round(totalPct);
         if (rounded !== 100) {
           throw badRequest(
-            `Valuers contribution must sum to 100%. Currently ${totalPct}%.`
+            `Valuers contribution must sum to 100%. Currently ${totalPct}%.`,
           );
         }
       }
@@ -242,22 +243,41 @@ exports.processMultiApproachBatch = async (req, res) => {
       } else {
         // multiple Excel with same basename – adjust as you like
         throw badRequest(
-          `Duplicate Excel base name detected: "${baseName}". Please ensure unique Excel file names.`
+          `Duplicate Excel base name detected: "${baseName}". Please ensure unique Excel file names.`,
         );
       }
     });
 
-    // Group PDFs by matching Excel basename
+    // Group PDFs by matching Excel basename and get absolute paths from request body
     const unmatchedPdfs = [];
     pdfFiles.forEach((file) => {
       const pdfBase = normalizeKey(path.parse(file.originalname).name);
       const bucket = excelMap.get(pdfBase);
+
       if (!bucket) {
         unmatchedPdfs.push(file.originalname);
       } else {
-        bucket.pdfs.push(path.resolve(file.path));
+        // Get the absolute path from request body (sent from frontend)
+        const absolutePath = req.body[pdfBase]; // The key is the normalized basename
+
+        // CRITICAL FIX: Only use absolute path if it exists, otherwise don't set a fallback
+        if (
+          absolutePath &&
+          absolutePath !== "undefined" &&
+          absolutePath !== "null"
+        ) {
+          bucket.pdfs.push(absolutePath);
+        } else {
+          // If no absolute path is provided from frontend, use the uploaded file path
+          bucket.pdfs.push(path.resolve(file.path));
+          console.warn(
+            `No absolute path provided for PDF: ${file.originalname}, using uploaded file path`,
+          );
+        }
       }
     });
+    const skipPdfUpload =
+      req.body.skipPdfUpload === "true" || req.body.skipPdfUpload === true;
 
     if (unmatchedPdfs.length > 0) {
       return res.status(400).json({
@@ -268,13 +288,12 @@ exports.processMultiApproachBatch = async (req, res) => {
       });
     }
 
-
     excelMap.forEach((value, baseName) => {
       if (value.pdfs.length === 0) {
         value.pdfs.push(dummyPdfPath);
+        console.log(`Setting dummy path for ${baseName}: ${dummyPdfPath}`);
       }
     });
-
 
     // Also ensure every Excel has at least one PDF (if that's required)
     const excelsWithoutPdf = [];
@@ -305,7 +324,7 @@ exports.processMultiApproachBatch = async (req, res) => {
         workbook = xlsx.readFile(excelPath);
       } catch (readErr) {
         throw badRequest(
-          `Excel "${file.originalname}" could not be read. Please confirm it is a valid .xlsx/.xls file.`
+          `Excel "${file.originalname}" could not be read. Please confirm it is a valid .xlsx/.xls file.`,
         );
       }
 
@@ -356,26 +375,26 @@ exports.processMultiApproachBatch = async (req, res) => {
       const valued_at = formatDateYyyyMmDd(
         parseExcelDate(
           report.valued_at ||
-          report["valued_at\n"] ||
-          report["Valued At"] ||
-          report["valued at"]
-        )
+            report["valued_at\n"] ||
+            report["Valued At"] ||
+            report["valued at"],
+        ),
       );
       const submitted_at = formatDateYyyyMmDd(
         parseExcelDate(
           report.submitted_at ||
-          report["submitted_at\n"] ||
-          report["Submitted At"] ||
-          report["submitted at"]
-        )
+            report["submitted_at\n"] ||
+            report["Submitted At"] ||
+            report["submitted at"],
+        ),
       );
       const inspection_date = formatDateYyyyMmDd(
         parseExcelDate(
           report.inspection_date ||
-          report["inspection_date\n"] ||
-          report["Inspection Date"] ||
-          report["inspection date"]
-        )
+            report["inspection_date\n"] ||
+            report["Inspection Date"] ||
+            report["inspection date"],
+        ),
       );
 
       const assumptions = report.assumptions || "";
@@ -400,12 +419,12 @@ exports.processMultiApproachBatch = async (req, res) => {
 
         if (!asset_usage_id) {
           throw badRequest(
-            `Asset "${assetName}" missing asset usage id (asset_usage_id) in market sheet.`
+            `Asset "${assetName}" missing asset usage id (asset_usage_id) in market sheet.`,
           );
         }
 
         const final_value = Number(
-          row.final_value || row["final_value\n"] || 0
+          row.final_value || row["final_value\n"] || 0,
         );
         assets_total_value += final_value;
 
@@ -426,12 +445,9 @@ exports.processMultiApproachBatch = async (req, res) => {
           market_approach: "1",
           market_approach_value: final_value.toString(),
 
-
-
           production_capacity: "0",
           production_capacity_measuring_unit: "0",
           product_type: "0",
-
         });
       });
 
@@ -444,7 +460,7 @@ exports.processMultiApproachBatch = async (req, res) => {
 
         if (!asset_usage_id) {
           throw badRequest(
-            `Asset "${assetName}" missing asset usage id (asset_usage_id) in cost sheet.`
+            `Asset "${assetName}" missing asset usage id (asset_usage_id) in cost sheet.`,
           );
         }
 
@@ -460,7 +476,7 @@ exports.processMultiApproachBatch = async (req, res) => {
         // 2) Ensure it's not empty
         if (final_value_raw === "" || final_value_raw === null) {
           throw badRequest(
-            `Asset "${row.asset_name}" has no final_value. It must be an integer.`
+            `Asset "${row.asset_name}" has no final_value. It must be an integer.`,
           );
         }
 
@@ -470,21 +486,21 @@ exports.processMultiApproachBatch = async (req, res) => {
         // 4) Must be a number
         if (isNaN(final_value_num)) {
           throw badRequest(
-            `Asset "${row.asset_name}" has invalid final_value "${final_value_raw}". Must be an integer number.`
+            `Asset "${row.asset_name}" has invalid final_value "${final_value_raw}". Must be an integer number.`,
           );
         }
 
         // 5) Must be integer (no decimals allowed)
         if (!Number.isInteger(final_value_num)) {
           throw badRequest(
-            `Asset "${row.asset_name}" has decimal final_value "${final_value_raw}". Only integer values are allowed.`
+            `Asset "${row.asset_name}" has decimal final_value "${final_value_raw}". Only integer values are allowed.`,
           );
         }
 
         // 6) Must be non-negative
         if (final_value_num <= 0) {
           throw badRequest(
-            `Asset "${row.asset_name}" has negative final_value "${final_value_raw}". Not allowed.`
+            `Asset "${row.asset_name}" has negative final_value "${final_value_raw}". Not allowed.`,
           );
         }
 
@@ -512,7 +528,6 @@ exports.processMultiApproachBatch = async (req, res) => {
           production_capacity: "0",
           production_capacity_measuring_unit: "0",
           product_type: "0",
-
         });
       });
 
@@ -537,7 +552,7 @@ exports.processMultiApproachBatch = async (req, res) => {
       // If you want exactly one PDF per Excels:
       if (pdfs.length !== 1) {
         throw new Error(
-          `Excel "${file.originalname}" must have exactly one matching PDF, but found ${pdfs.length}.`
+          `Excel "${file.originalname}" must have exactly one matching PDF, but found ${pdfs.length}.`,
         );
       }
 
@@ -604,7 +619,10 @@ exports.processMultiApproachBatch = async (req, res) => {
     });
   } catch (err) {
     console.error("Multi-approach batch upload error:", err);
-    const statusCode = err?.statusCode && Number.isInteger(err.statusCode) ? err.statusCode : 500;
+    const statusCode =
+      err?.statusCode && Number.isInteger(err.statusCode)
+        ? err.statusCode
+        : 500;
     return res.status(statusCode).json({
       status: "failed",
       error: err?.message || "Unexpected error",
@@ -614,7 +632,9 @@ exports.processMultiApproachBatch = async (req, res) => {
 
 exports.createManualMultiApproachReport = async (req, res) => {
   try {
-    const assetsPayload = Array.isArray(req.body?.assets) ? req.body.assets : [];
+    const assetsPayload = Array.isArray(req.body?.assets)
+      ? req.body.assets
+      : [];
     const reportInfo = req.body?.reportInfo || {};
 
     if (!assetsPayload.length) {
@@ -625,11 +645,7 @@ exports.createManualMultiApproachReport = async (req, res) => {
       .map((row, index) => {
         if (!row) return null;
 
-        const rawName =
-          row.asset_name ||
-          row.assetName ||
-          row.name ||
-          "";
+        const rawName = row.asset_name || row.assetName || row.name || "";
         const asset_name = rawName.toString().trim();
         if (!asset_name) {
           throw badRequest(`Row ${index + 1}: asset_name is required.`);
@@ -642,20 +658,22 @@ exports.createManualMultiApproachReport = async (req, res) => {
           row.assetUsage;
         const asset_usage_id = Number(usageRaw);
         if (!Number.isInteger(asset_usage_id)) {
-          throw badRequest(`Row ${index + 1}: asset_usage_id must be an integer.`);
+          throw badRequest(
+            `Row ${index + 1}: asset_usage_id must be an integer.`,
+          );
         }
 
-        const finalValueRaw =
-          row.final_value ||
-          row.value;
+        const finalValueRaw = row.final_value || row.value;
         const final_value = Number(finalValueRaw);
         if (!Number.isInteger(final_value) || final_value < 0) {
-          throw badRequest(`Row ${index + 1}: final_value must be a non-negative integer.`);
+          throw badRequest(
+            `Row ${index + 1}: final_value must be a non-negative integer.`,
+          );
         }
 
         const source =
           typeof row.source_sheet === "string" &&
-            row.source_sheet.toLowerCase() === "cost"
+          row.source_sheet.toLowerCase() === "cost"
             ? "cost"
             : "market";
 
@@ -671,7 +689,9 @@ exports.createManualMultiApproachReport = async (req, res) => {
         };
 
         if (row.owner_name || row.ownerName) {
-          assetDoc.owner_name = (row.owner_name || row.ownerName || "").toString().trim();
+          assetDoc.owner_name = (row.owner_name || row.ownerName || "")
+            .toString()
+            .trim();
         }
         if (row.region) {
           assetDoc.region = row.region.toString().trim();
@@ -681,7 +701,7 @@ exports.createManualMultiApproachReport = async (req, res) => {
         }
         if (row.inspection_date || row.inspectionDate) {
           assetDoc.inspection_date = formatDateYyyyMmDd(
-            row.inspection_date || row.inspectionDate
+            row.inspection_date || row.inspectionDate,
           );
         }
 
@@ -703,12 +723,15 @@ exports.createManualMultiApproachReport = async (req, res) => {
 
     const assets_total_value = normalizedAssets.reduce(
       (sum, asset) => sum + asset.final_value,
-      0
+      0,
     );
 
-    const providedFinal = reportInfo.final_value ?? reportInfo.finalValue ?? reportInfo.value;
+    const providedFinal =
+      reportInfo.final_value ?? reportInfo.finalValue ?? reportInfo.value;
     const final_value =
-      providedFinal === undefined || providedFinal === null || providedFinal === ""
+      providedFinal === undefined ||
+      providedFinal === null ||
+      providedFinal === ""
         ? assets_total_value
         : Number(providedFinal);
 
@@ -718,14 +741,16 @@ exports.createManualMultiApproachReport = async (req, res) => {
 
     if (Math.abs(final_value - assets_total_value) > 0.01) {
       throw badRequest(
-        "Report final_value must match the sum of asset final_value entries."
+        "Report final_value must match the sum of asset final_value entries.",
       );
     }
 
     const valuation_currency =
       reportInfo.valuation_currency || reportInfo.currency_id || "to set";
 
-    const report_users = cleanStringArray(reportInfo.report_users || reportInfo.reportUsers);
+    const report_users = cleanStringArray(
+      reportInfo.report_users || reportInfo.reportUsers,
+    );
     const has_other_users =
       reportInfo.has_other_users !== undefined
         ? toBooleanFlag(reportInfo.has_other_users)
@@ -735,12 +760,12 @@ exports.createManualMultiApproachReport = async (req, res) => {
     if (valuers.length) {
       const totalPct = valuers.reduce(
         (sum, v) => sum + Number(v.contribution_percentage || 0),
-        0
+        0,
       );
       const rounded = Math.round(totalPct);
       if (rounded !== 100) {
         throw badRequest(
-          `Valuers contribution must sum to 100%. Currently ${totalPct}%.`
+          `Valuers contribution must sum to 100%. Currently ${totalPct}%.`,
         );
       }
     }
@@ -753,18 +778,15 @@ exports.createManualMultiApproachReport = async (req, res) => {
       `${manualTitle || "manual-report"}-${timestamp}`;
     const ext = path.extname(rawExcelName).toLowerCase();
     const excel_name =
-      ext === ".xlsx" || ext === ".xls"
-        ? rawExcelName
-        : `${rawExcelName}.xlsx`;
+      ext === ".xlsx" || ext === ".xls" ? rawExcelName : `${rawExcelName}.xlsx`;
     const excel_basename = toSafeBasename(
       reportInfo.excel_basename || reportInfo.excelBasename || rawExcelName,
-      `manual-${timestamp}`
+      `manual-${timestamp}`,
     );
 
     const batchId =
-      (reportInfo.batchId || reportInfo.batch_id || "")
-        .toString()
-        .trim() || `MAN-${timestamp}`;
+      (reportInfo.batchId || reportInfo.batch_id || "").toString().trim() ||
+      `MAN-${timestamp}`;
 
     const region = reportInfo.region || "";
     const city = reportInfo.city || "";
@@ -809,7 +831,8 @@ exports.createManualMultiApproachReport = async (req, res) => {
         city: asset.city || city,
         owner_name: asset.owner_name || owner_name,
         inspection_date:
-          asset.inspection_date || formatDateYyyyMmDd(reportInfo.inspection_date),
+          asset.inspection_date ||
+          formatDateYyyyMmDd(reportInfo.inspection_date),
       })),
     };
 
@@ -830,19 +853,22 @@ exports.createManualMultiApproachReport = async (req, res) => {
 
       return res.status(400).json({
         status: "failed",
-        error: messages.join("Date Validation Error: Date of Valuation must be on or before Report Issuing Date"),
+        error: messages.join(
+          "Date Validation Error: Date of Valuation must be on or before Report Issuing Date",
+        ),
       });
     }
 
     const statusCode =
-      err?.statusCode && Number.isInteger(err.statusCode) ? err.statusCode : 500;
+      err?.statusCode && Number.isInteger(err.statusCode)
+        ? err.statusCode
+        : 500;
 
     return res.status(statusCode).json({
       status: "failed",
       error: err?.message || "Unexpected error",
     });
   }
-
 };
 
 exports.listMultiApproachReports = async (req, res) => {
@@ -913,14 +939,14 @@ exports.getMultiApproachReportsByUserId = async (req, res) => {
     let query = baseQuery;
 
     // Add status filter if provided
-    if (status && status !== 'all') {
-      if (status === 'approved') {
+    if (status && status !== "all") {
+      if (status === "approved") {
         query.checked = true;
-      } else if (status === 'sent') {
+      } else if (status === "sent") {
         query.report_id = { $exists: true, $ne: null };
-      } else if (status === 'complete') {
+      } else if (status === "complete") {
         query.endSubmitTime = { $exists: true };
-      } else if (status === 'incomplete') {
+      } else if (status === "incomplete") {
         query.report_id = { $exists: false };
         query.endSubmitTime = { $exists: false };
         query.checked = { $ne: true };
@@ -1001,7 +1027,9 @@ exports.updateMultiApproachReport = async (req, res) => {
     const reportId = req.params.id;
     const report = await MultiApproachReport.findById(reportId);
     if (!report) {
-      return res.status(404).json({ success: false, message: "Report not found." });
+      return res
+        .status(404)
+        .json({ success: false, message: "Report not found." });
     }
 
     const updates = {};
@@ -1065,7 +1093,9 @@ exports.deleteMultiApproachReport = async (req, res) => {
     const reportId = req.params.id;
     const report = await MultiApproachReport.findById(reportId);
     if (!report) {
-      return res.status(404).json({ success: false, message: "Report not found." });
+      return res
+        .status(404)
+        .json({ success: false, message: "Report not found." });
     }
 
     await report.deleteOne();
@@ -1080,8 +1110,8 @@ exports.deleteMultiApproachReport = async (req, res) => {
         data: {
           reportId,
           view: "multi-excel-upload",
-          action: "deleted"
-        }
+          action: "deleted",
+        },
       });
     } catch (notifyError) {
       console.warn("Failed to create delete notification", notifyError);
@@ -1103,21 +1133,36 @@ exports.updateMultiApproachAsset = async (req, res) => {
     const reportId = req.params.id;
     const assetIndex = Number(req.params.index);
     if (!Number.isInteger(assetIndex) || assetIndex < 0) {
-      return res.status(400).json({ success: false, message: "Invalid asset index." });
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid asset index." });
     }
 
     const report = await MultiApproachReport.findById(reportId);
     if (!report) {
-      return res.status(404).json({ success: false, message: "Report not found." });
+      return res
+        .status(404)
+        .json({ success: false, message: "Report not found." });
     }
 
-    if (!Array.isArray(report.asset_data) || assetIndex >= report.asset_data.length) {
-      return res.status(400).json({ success: false, message: "Asset index out of range." });
+    if (
+      !Array.isArray(report.asset_data) ||
+      assetIndex >= report.asset_data.length
+    ) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Asset index out of range." });
     }
 
     const asset = report.asset_data[assetIndex];
     const updates = {};
-    const allowedFields = ["asset_name", "asset_usage_id", "final_value", "region", "city"];
+    const allowedFields = [
+      "asset_name",
+      "asset_usage_id",
+      "final_value",
+      "region",
+      "city",
+    ];
 
     allowedFields.forEach((field) => {
       if (req.body[field] !== undefined) {
@@ -1148,16 +1193,25 @@ exports.deleteMultiApproachAsset = async (req, res) => {
     const reportId = req.params.id;
     const assetIndex = Number(req.params.index);
     if (!Number.isInteger(assetIndex) || assetIndex < 0) {
-      return res.status(400).json({ success: false, message: "Invalid asset index." });
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid asset index." });
     }
 
     const report = await MultiApproachReport.findById(reportId);
     if (!report) {
-      return res.status(404).json({ success: false, message: "Report not found." });
+      return res
+        .status(404)
+        .json({ success: false, message: "Report not found." });
     }
 
-    if (!Array.isArray(report.asset_data) || assetIndex >= report.asset_data.length) {
-      return res.status(400).json({ success: false, message: "Asset index out of range." });
+    if (
+      !Array.isArray(report.asset_data) ||
+      assetIndex >= report.asset_data.length
+    ) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Asset index out of range." });
     }
 
     report.asset_data.splice(assetIndex, 1);
