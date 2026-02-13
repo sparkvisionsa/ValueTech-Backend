@@ -11,14 +11,11 @@ const { extractCompanyOfficeId } = require("../utils/companyOffice");
 
 function normalizeKey(str) {
   if (!str) return "";
-  return str
-    .toString()
-    .normalize("NFC")
-    .replace(/\s+/g, " ")
-    .trim();
+  return str.toString().normalize("NFC").replace(/\s+/g, " ").trim();
 }
 
-const safeString = (value) => (value === undefined || value === null ? "" : String(value));
+const safeString = (value) =>
+  value === undefined || value === null ? "" : String(value);
 
 const toNumber = (value) => {
   if (value === undefined || value === null || value === "") return undefined;
@@ -54,13 +51,17 @@ const cleanValuersPayload = (rawValuers) => {
 
   const cleaned = valuers
     .map((valuer) => {
-      const id = safeString(valuer?.valuerId || valuer?.valuer_id || valuer?.id).trim();
-      const name = safeString(valuer?.valuerName || valuer?.valuer_name || valuer?.name).trim();
+      const id = safeString(
+        valuer?.valuerId || valuer?.valuer_id || valuer?.id,
+      ).trim();
+      const name = safeString(
+        valuer?.valuerName || valuer?.valuer_name || valuer?.name,
+      ).trim();
       const pct = toNumber(
         valuer?.percentage ??
-        valuer?.contribution_percentage ??
-        valuer?.pct ??
-        valuer?.percent
+          valuer?.contribution_percentage ??
+          valuer?.pct ??
+          valuer?.percent,
       );
 
       return {
@@ -77,7 +78,7 @@ const cleanValuersPayload = (rawValuers) => {
 function getPlaceholderPdfPath() {
   const preferredPath = path.resolve(
     __dirname,
-    "../../../uploads/static/dummy_placeholder.pdf"
+    "../../../uploads/static/dummy_placeholder.pdf",
   );
 
   if (fs.existsSync(preferredPath)) {
@@ -87,12 +88,12 @@ function getPlaceholderPdfPath() {
   const fallbackPath = path.resolve(
     "uploads",
     "static",
-    "dummy_placeholder.pdf"
+    "dummy_placeholder.pdf",
   );
 
   if (!fs.existsSync(fallbackPath)) {
     throw new Error(
-      "Placeholder PDF missing at uploads/static/dummy_placeholder.pdf"
+      "Placeholder PDF missing at uploads/static/dummy_placeholder.pdf",
     );
   }
 
@@ -110,7 +111,6 @@ const buildOwnerQuery = (userContext = {}) => {
   if (!clauses.length) return {};
   return clauses.length === 1 ? clauses[0] : { $or: clauses };
 };
-
 
 // 🔹 Same mojibake fix you used in processUpload
 function fixMojibake(str) {
@@ -152,9 +152,6 @@ function fixMojibake(str) {
 
 //   return null;
 // }
-
-
-
 
 function toYMDFromDate(d) {
   if (!(d instanceof Date) || isNaN(d.getTime())) return null;
@@ -207,11 +204,6 @@ function parseExcelDate(value) {
 
   return null;
 }
-
-
-
-
-
 
 function ensureTempPdf(batch_id, assetId) {
   const tempDir = path.join("uploads", "temp");
@@ -276,7 +268,8 @@ function detectValuerColumnsOrThrow(exampleRow) {
   const hasBaseName = nameKeys.length > 0;
   const hasBasePct = pctKeys.length > 0;
 
-  const hasAnyValuerCols = idKeys.length > 0 || nameKeys.length > 0 || pctKeys.length > 0;
+  const hasAnyValuerCols =
+    idKeys.length > 0 || nameKeys.length > 0 || pctKeys.length > 0;
 
   if (!hasAnyValuerCols) {
     return {
@@ -291,7 +284,7 @@ function detectValuerColumnsOrThrow(exampleRow) {
   if (!hasBaseName || !hasBasePct) {
     throw new Error(
       "Market sheet must contain headers 'valuerName' and 'percentage'. " +
-      "If there are multiple valuers, Excel will create valuerName_1, percentage_1, etc."
+        "If there are multiple valuers, Excel will create valuerName_1, percentage_1, etc.",
     );
   }
 
@@ -347,10 +340,7 @@ function buildValuersForAsset(assetRow, valuerCols) {
     }
 
     const pctNum = Number(
-      pctString
-        .replace(/[%٪]/g, "")
-        .replace(/,/g, ".")
-        .trim()
+      pctString.replace(/[%٪]/g, "").replace(/,/g, ".").trim(),
     );
 
     if (Number.isNaN(pctNum)) {
@@ -416,7 +406,9 @@ exports.processElrajhiExcel = async (req, res) => {
       });
     }
 
-    const reportInfoRows = xlsx.utils.sheet_to_json(reportSheet, { defval: "" });
+    const reportInfoRows = xlsx.utils.sheet_to_json(reportSheet, {
+      defval: "",
+    });
     const marketRows = xlsx.utils.sheet_to_json(marketSheet, { defval: "" });
 
     if (!reportInfoRows.length) {
@@ -438,21 +430,21 @@ exports.processElrajhiExcel = async (req, res) => {
     // 2) Parse dates from report info
     const valued_at = parseExcelDate(
       report.valued_at ||
-      report["valued_at\n"] ||
-      report["Valued At"] ||
-      report["valued at"]
+        report["valued_at\n"] ||
+        report["Valued At"] ||
+        report["valued at"],
     );
     const submitted_at = parseExcelDate(
       report.submitted_at ||
-      report["submitted_at\n"] ||
-      report["Submitted At"] ||
-      report["submitted at"]
+        report["submitted_at\n"] ||
+        report["Submitted At"] ||
+        report["submitted at"],
     );
     const inspection_date = parseExcelDate(
       report.inspection_date ||
-      report["inspection_date\n"] ||
-      report["Inspection Date"] ||
-      report["inspection date"]
+        report["inspection_date\n"] ||
+        report["Inspection Date"] ||
+        report["inspection date"],
     );
 
     // 3) Detect valuer columns – THROW if headers DON'T match
@@ -467,12 +459,13 @@ exports.processElrajhiExcel = async (req, res) => {
     }
 
     const selectedValuers = cleanValuersPayload(req.body?.valuers);
-    const hasSelectedValuers = Array.isArray(selectedValuers) && selectedValuers.length > 0;
+    const hasSelectedValuers =
+      Array.isArray(selectedValuers) && selectedValuers.length > 0;
 
     if (hasSelectedValuers) {
       const totalPct = selectedValuers.reduce(
         (sum, v) => sum + (Number(v.percentage) || 0),
-        0
+        0,
       );
       const roundedTotal = Math.round(totalPct * 100) / 100;
       if (Math.abs(roundedTotal - 100) > 0.001) {
@@ -484,23 +477,35 @@ exports.processElrajhiExcel = async (req, res) => {
     } else if (!valuerCols.hasValuerColumns) {
       return res.status(400).json({
         status: "failed",
-        error: "Valuers are required. Select valuers from Taqeem before sending.",
+        error:
+          "Valuers are required. Select valuers from Taqeem before sending.",
       });
     }
 
     // 4) Build pdfMap from uploaded PDFs (with mojibake fix)
     const pdfMap = {};
     pdfFiles.forEach((file) => {
-      const rawName = file.originalname;          // e.g. "Ø¯ Ù Øµ 1220.pdf"
-      const fixedName = fixMojibake(rawName);     // "د م ص 1220.pdf" (hopefully)
+      const rawName = file.originalname;
+      const fixedName = fixMojibake(rawName);
 
       console.log("PDF rawName:", rawName);
       console.log("PDF fixedName:", fixedName);
 
-      const baseName = path.parse(fixedName).name; // without extension
-      const key = normalizeKey(baseName);
-      const fullPath = path.resolve(file.path);
-      pdfMap[key] = fullPath;
+      const baseName = path.parse(fixedName).name;
+      const normalizedKey = normalizeKey(baseName);
+
+      // Look up the absolute path using normalizedKey
+      const absolutePath = req.body[normalizedKey];
+
+      const fullPath =
+        absolutePath && absolutePath !== "undefined" && absolutePath !== "null"
+          ? absolutePath
+          : path.resolve(file.path);
+
+      // Store with normalizedKey as the key
+      pdfMap[normalizedKey] = fullPath;
+
+      console.log(`PDF mapping: ${normalizedKey} -> ${fullPath}`);
     });
 
     console.log("PDF files received:", pdfFiles.length);
@@ -545,7 +550,9 @@ exports.processElrajhiExcel = async (req, res) => {
         valuerCols.hasValuerColumns &&
         valuerCols.allKeys.some((key) => {
           const value = assetRow[key];
-          return value !== null && value !== undefined && String(value).trim() !== "";
+          return (
+            value !== null && value !== undefined && String(value).trim() !== ""
+          );
         });
 
       // Build valuers[] for this asset from selected valuers or Excel (if provided).
@@ -558,7 +565,7 @@ exports.processElrajhiExcel = async (req, res) => {
       if (!hasSelectedValuers && hasValuerData) {
         const totalPct = valuers.reduce(
           (sum, v) => sum + (Number(v.percentage) || 0),
-          0
+          0,
         );
 
         const roundedTotal = Math.round(totalPct * 100) / 100;
@@ -572,20 +579,19 @@ exports.processElrajhiExcel = async (req, res) => {
         }
       }
 
-
       // ---- PDF resolution ----
-      const assetKey = assetName; // already normalized
-      let pdf_path = pdfMap[assetKey] || null;
+      let pdf_path = pdfMap[assetName] || null; // assetName is already normalized
 
       if (!pdf_path) {
         console.warn(
           "No PDF found for asset:",
           assetName,
-          "using dummy-placeholder.pdf"
+          "using dummy-placeholder.pdf",
         );
         pdf_path = getPlaceholderPdfPath();
+      } else {
+        console.log(`PDF found for asset ${assetName}: ${pdf_path}`);
       }
-
 
       docs.push({
         batch_id,
@@ -647,7 +653,13 @@ exports.processElrajhiExcel = async (req, res) => {
     // Ensure all inserted docs carry the user phone (in case of missing values)
     await UrgentReport.updateMany(
       { batch_id },
-      { $set: { user_phone: userPhone, user_id: userId, taqeem_user: taqeemUser } }
+      {
+        $set: {
+          user_phone: userPhone,
+          user_id: userId,
+          taqeem_user: taqeemUser,
+        },
+      },
     );
 
     console.log("====================================");
@@ -711,12 +723,12 @@ exports.exportElrajhiBatch = async (req, res) => {
     const fileName = `${parsed.name} updated${parsed.ext || ".xlsx"}`;
 
     const header = ["#", "Asset Name", "Client Name", "Report ID"];
-    const rows = reports.map((r, idx) => ([
+    const rows = reports.map((r, idx) => [
       idx + 1,
       r.asset_name || "",
       r.client_name || "",
       r.report_id || "",
-    ]));
+    ]);
 
     const ws = xlsx.utils.aoa_to_sheet([header, ...rows]);
     const wb = xlsx.utils.book_new();
@@ -724,13 +736,10 @@ exports.exportElrajhiBatch = async (req, res) => {
 
     const buffer = xlsx.write(wb, { type: "buffer", bookType: "xlsx" });
 
-    res.setHeader(
-      "Content-Disposition",
-      `attachment; filename="${fileName}"`
-    );
+    res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
     res.setHeader(
       "Content-Type",
-      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     );
 
     return res.send(buffer);
@@ -932,7 +941,8 @@ exports.updateElrajhiReport = async (req, res) => {
 
     const setField = (field, value, transform) => {
       if (value === undefined) return;
-      const nextValue = typeof transform === "function" ? transform(value) : value;
+      const nextValue =
+        typeof transform === "function" ? transform(value) : value;
       if (nextValue !== undefined) {
         updates[field] = nextValue;
       }
@@ -964,7 +974,9 @@ exports.updateElrajhiReport = async (req, res) => {
     setField("asset_name", body.asset_name);
     setField("asset_usage", body.asset_usage);
     setField("valuation_currency", body.valuation_currency);
-    setField("report_status", body.report_status, (val) => safeString(val).toUpperCase());
+    setField("report_status", body.report_status, (val) =>
+      safeString(val).toUpperCase(),
+    );
 
     if (body.submit_state !== undefined) {
       const submitState = toNumber(body.submit_state);

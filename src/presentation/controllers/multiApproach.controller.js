@@ -194,6 +194,8 @@ exports.processMultiApproachBatch = async (req, res) => {
         error: "At least one Excel file (field 'excels') is required.",
       });
     }
+
+    // Define normalization functions (matching frontend)
     const normalizeKey = (value) =>
       (value || "")
         .toString()
@@ -205,8 +207,12 @@ exports.processMultiApproachBatch = async (req, res) => {
 
     const excelFiles = req.files.excels;
     const pdfFiles = req.files.pdfs || [];
+    const skipPdfUpload =
+      req.body.skipPdfUpload === "true" || req.body.skipPdfUpload === true;
+
     let batchValuers = [];
 
+    // Parse valuers if provided
     if (req.body?.valuers) {
       let parsedValuers = req.body.valuers;
       if (typeof parsedValuers === "string") {
@@ -235,91 +241,137 @@ exports.processMultiApproachBatch = async (req, res) => {
     const companyOfficeId = extractCompanyOfficeId(req);
 
     // 1) Build maps by basename (without extension)
-    const excelMap = new Map(); // basename -> { file, pdfs: [] }
+    const excelMap = new Map(); // basename -> { file, pdfPath: null }
+
     excelFiles.forEach((file) => {
-      const baseName = normalizeKey(path.parse(file.originalname).name);
+      const baseName = normalizeKey(stripExtension(file.originalname));
       if (!excelMap.has(baseName)) {
-        excelMap.set(baseName, { file, pdfs: [] });
+        excelMap.set(baseName, {
+          file,
+          pdfPath: null,
+          pdfFile: null,
+        });
       } else {
-        // multiple Excel with same basename – adjust as you like
         throw badRequest(
           `Duplicate Excel base name detected: "${baseName}". Please ensure unique Excel file names.`,
         );
       }
     });
 
-    // Group PDFs by matching Excel basename and get absolute paths from request body
-    const unmatchedPdfs = [];
+    // Add this after the excelsMissingPath check (around line 150-160)
+
+    console.log("=== DEBUG: MULTI APPROACH UPLOAD ===");
+    console.log("skipPdfUpload:", skipPdfUpload);
+    console.log(
+      "Excel files:",
+      excelFiles.map((f) => f.originalname),
+    );
+    console.log(
+      "PDF files:",
+      pdfFiles.map((f) => f.originalname),
+    );
+    console.log(
+      "Excel map entries:",
+      Array.from(excelMap.entries()).map(([key, value]) => ({
+        key,
+        pdfPath: value.pdfPath,
+        hasPdfFile: !!value.pdfFile,
+      })),
+    );
+    console.log("req.body keys:", Object.keys(req.body));
+    console.log("req.body skipPdfUpload:", req.body.skipPdfUpload);
+    console.log("===================================");
+
+    // 2) Process uploaded PDF files - match by basename and get absolute paths from request body
     pdfFiles.forEach((file) => {
-      const pdfBase = normalizeKey(path.parse(file.originalname).name);
+      const pdfBase = normalizeKey(stripExtension(file.originalname));
       const bucket = excelMap.get(pdfBase);
 
       if (!bucket) {
-        unmatchedPdfs.push(file.originalname);
-      } else {
-        // Get the absolute path from request body (sent from frontend)
-        const absolutePath = req.body[pdfBase]; // The key is the normalized basename
+        return;
+      }
 
-        // CRITICAL FIX: Only use absolute path if it exists, otherwise don't set a fallback
-        if (
-          absolutePath &&
-          absolutePath !== "undefined" &&
-          absolutePath !== "null"
-        ) {
-          bucket.pdfs.push(absolutePath);
-        } else {
-          // If no absolute path is provided from frontend, use the uploaded file path
-          bucket.pdfs.push(path.resolve(file.path));
-          console.warn(
-            `No absolute path provided for PDF: ${file.originalname}, using uploaded file path`,
-          );
+      const absolutePath = req.body[pdfBase];
+      if (
+        absolutePath &&
+        absolutePath !== "undefined" &&
+        absolutePath !== "null"
+      ) {
+        bucket.pdfPath = absolutePath;
+        bucket.pdfFile = file;
+      } else {
+        bucket.pdfPath = path.resolve(file.path);
+        bucket.pdfFile = file;
+        console.warn(
+          `No absolute path provided for PDF: ${file.originalname}, using uploaded file path: ${bucket.pdfPath}`,
+        );
+      }
+    });
+
+    // 3) NOW, for any Excel that still doesn't have a pdfPath, check req.body for dummy paths
+    for (const [baseName, bucket] of excelMap.entries()) {
+      if (!bucket.pdfPath) {
+        const dummyPath = req.body[baseName];
+        if (dummyPath && dummyPath !== "undefined" && dummyPath !== "null") {
+          bucket.pdfPath = dummyPath;
+          console.log(`Using dummy PDF path for ${baseName}: ${dummyPath}`);
         }
       }
-    });
-    const skipPdfUpload =
-      req.body.skipPdfUpload === "true" || req.body.skipPdfUpload === true;
+    }
 
-    if (unmatchedPdfs.length > 0) {
+    // 3) Check for unmatched PDFs
+    const unmatchedPdfs = pdfFiles
+      .filter((file) => {
+        const pdfBase = normalizeKey(stripExtension(file.originalname));
+        return !excelMap.has(pdfBase);
+      })
+      .map((file) => file.originalname);
+
+    if (unmatchedPdfs.length > 0 && !skipPdfUpload) {
       return res.status(400).json({
         status: "failed",
-        error:
-          "These PDFs do not match any Excel file by name: " +
-          unmatchedPdfs.join(", "),
+        error: `These PDFs do not match any Excel file by name: ${unmatchedPdfs.join(", ")}`,
       });
     }
 
-    excelMap.forEach((value, baseName) => {
-      if (value.pdfs.length === 0) {
-        value.pdfs.push(dummyPdfPath);
-        console.log(`Setting dummy path for ${baseName}: ${dummyPdfPath}`);
-      }
-    });
-
-    // Also ensure every Excel has at least one PDF (if that's required)
-    const excelsWithoutPdf = [];
-    for (const [baseName, value] of excelMap.entries()) {
-      if (!value.pdfs.length) {
-        excelsWithoutPdf.push(value.file.originalname);
+    // 4) Verify every Excel has a PDF path
+    //    IMPORTANT: The frontend MUST send paths for ALL Excel files when skipPdfUpload=true
+    const excelsMissingPath = [];
+    for (const [baseName, bucket] of excelMap.entries()) {
+      if (!bucket.pdfPath) {
+        excelsMissingPath.push({
+          baseName,
+          fileName: bucket.file.originalname,
+        });
       }
     }
-    if (excelsWithoutPdf.length > 0) {
-      return res.status(400).json({
-        status: "failed",
-        error:
-          "These Excel files have no matching PDF: " +
-          excelsWithoutPdf.join(", "),
-      });
+
+    if (excelsMissingPath.length > 0) {
+      if (skipPdfUpload) {
+        // Frontend should have sent dummy paths for all Excel files
+        return res.status(400).json({
+          status: "failed",
+          error:
+            `PDF paths not provided for Excel files: ${excelsMissingPath.map((e) => e.fileName).join(", ")}. ` +
+            `When skipPdfUpload=true, the frontend must send absolute paths for all Excel files.`,
+        });
+      } else {
+        return res.status(400).json({
+          status: "failed",
+          error: `These Excel files have no matching PDF: ${excelsMissingPath.map((e) => e.fileName).join(", ")}`,
+        });
+      }
     }
 
-    // 2) Generate batchId for this request
+    // 5) Generate batchId for this request
     const batchId = `ABM-${Date.now()}`;
-
     const docsToInsert = [];
 
-    // 3) Process each Excel file
-    for (const [baseName, { file, pdfs }] of excelMap.entries()) {
+    // 6) Process each Excel file
+    for (const [baseName, { file, pdfPath }] of excelMap.entries()) {
       const excelPath = file.path;
       let workbook;
+
       try {
         workbook = xlsx.readFile(excelPath);
       } catch (readErr) {
@@ -353,21 +405,19 @@ exports.processMultiApproachBatch = async (req, res) => {
       const marketRows = xlsx.utils.sheet_to_json(marketSheet, { defval: "" });
       const costRows = xlsx.utils.sheet_to_json(costSheet, { defval: "" });
 
-      // 3.1 Parse basic report info
+      // Parse basic report info
       const title = report.title || report["title\n"] || "";
       const client_name =
         report.client_name ||
         report["client_name\n"] ||
         report["Client Name"] ||
         "";
-
       const owner_name =
         report.owner_name ||
         report.client_name ||
         report["owner_name\n"] ||
         report["Owner Name"] ||
         "";
-
       const purpose_id = report.purpose_id || null;
       const value_premise_id = report.value_premise_id || null;
       const report_type = report.report_type || "";
@@ -401,13 +451,11 @@ exports.processMultiApproachBatch = async (req, res) => {
       const special_assumptions = report.special_assumptions || "";
       const telephone = report.telephone || "";
       const email = report.email || "";
-
       const region = report.region || "";
       const city = report.city || "";
-
       const report_total_value = getReportTotalValue(report);
 
-      // 3.2 Build assets from market + cost sheets
+      // Build assets from market + cost sheets
       const assets = [];
       let assets_total_value = 0;
 
@@ -415,8 +463,8 @@ exports.processMultiApproachBatch = async (req, res) => {
       marketRows.forEach((row, index) => {
         const assetName = row.asset_name || row["asset_name\n"];
         if (!assetName) return;
-        const asset_usage_id = row.asset_usage_id || null;
 
+        const asset_usage_id = row.asset_usage_id || null;
         if (!asset_usage_id) {
           throw badRequest(
             `Asset "${assetName}" missing asset usage id (asset_usage_id) in market sheet.`,
@@ -432,19 +480,14 @@ exports.processMultiApproachBatch = async (req, res) => {
           asset_id: row.id || index + 1,
           asset_name: assetName,
           asset_usage_id: asset_usage_id,
-
-          // repeated report-level fields
           region,
           city,
           owner_name,
-          inspection_date, // yyyy-mm-dd
-
+          inspection_date,
           source_sheet: "market",
           final_value,
-
           market_approach: "1",
           market_approach_value: final_value.toString(),
-
           production_capacity: "0",
           production_capacity_measuring_unit: "0",
           product_type: "0",
@@ -457,14 +500,12 @@ exports.processMultiApproachBatch = async (req, res) => {
         if (!assetName) return;
 
         const asset_usage_id = row.asset_usage_id || null;
-
         if (!asset_usage_id) {
           throw badRequest(
             `Asset "${assetName}" missing asset usage id (asset_usage_id) in cost sheet.`,
           );
         }
 
-        // 1) Extract original value
         const final_value_raw =
           row.final_value ||
           row["final_value\n"] ||
@@ -473,58 +514,46 @@ exports.processMultiApproachBatch = async (req, res) => {
           row["Value"] ||
           "";
 
-        // 2) Ensure it's not empty
         if (final_value_raw === "" || final_value_raw === null) {
           throw badRequest(
             `Asset "${row.asset_name}" has no final_value. It must be an integer.`,
           );
         }
 
-        // 3) Convert to number
         const final_value_num = Number(final_value_raw);
-
-        // 4) Must be a number
         if (isNaN(final_value_num)) {
           throw badRequest(
             `Asset "${row.asset_name}" has invalid final_value "${final_value_raw}". Must be an integer number.`,
           );
         }
 
-        // 5) Must be integer (no decimals allowed)
         if (!Number.isInteger(final_value_num)) {
           throw badRequest(
             `Asset "${row.asset_name}" has decimal final_value "${final_value_raw}". Only integer values are allowed.`,
           );
         }
 
-        // 6) Must be non-negative
         if (final_value_num <= 0) {
           throw badRequest(
             `Asset "${row.asset_name}" has negative final_value "${final_value_raw}". Not allowed.`,
           );
         }
 
-        const final_value = final_value_num; // SAFE INTEGER
-
+        const final_value = final_value_num;
         assets_total_value += final_value;
 
         assets.push({
-          asset_id: row.id || index + 1, // note: may overlap with market; that's ok
+          asset_id: row.id || index + 1,
           asset_name: assetName,
           asset_usage_id: asset_usage_id,
-
-          // repeated report-level fields
           region,
           city,
           owner_name,
-          inspection_date, // yyyy-mm-dd
-
+          inspection_date,
           source_sheet: "cost",
           final_value,
-
           cost_approach: "1",
           cost_approach_value: final_value.toString(),
-
           production_capacity: "0",
           production_capacity_measuring_unit: "0",
           product_type: "0",
@@ -538,25 +567,16 @@ exports.processMultiApproachBatch = async (req, res) => {
         });
       }
 
-      // 3.3 Validate total values match
+      // Validate total values match
       const diff = Math.abs(assets_total_value - report_total_value);
       if (diff > 0.01) {
         return res.status(400).json({
           status: "failed",
-          error:
-            `Excel "${file.originalname}" total assets value (${assets_total_value}) ` +
-            `does not match Report Info total value (${report_total_value}).`,
+          error: `Excel "${file.originalname}" total assets value (${assets_total_value}) does not match Report Info total value (${report_total_value}).`,
         });
       }
 
-      // If you want exactly one PDF per Excels:
-      if (pdfs.length !== 1) {
-        throw new Error(
-          `Excel "${file.originalname}" must have exactly one matching PDF, but found ${pdfs.length}.`,
-        );
-      }
-
-      // 3.4 Build document for this Excel
+      // Build document for this Excel
       docsToInsert.push({
         batchId,
         user_id: req.user?.id,
@@ -566,49 +586,39 @@ exports.processMultiApproachBatch = async (req, res) => {
         excel_name: file.originalname,
         excel_basename: baseName,
         owner_name,
-
         title,
         client_name,
         purpose_id,
         value_premise_id,
         report_type,
-
-        // already formatted as yyyy-mm-dd strings
         valued_at,
         submitted_at,
         inspection_date,
-
         assumptions,
         special_assumptions,
         telephone,
         email,
-
         region,
         city,
-
         valuers: batchValuers,
-
         final_value: report_total_value,
         assets_total_value,
-
-        // renamed field to match schema
         asset_data: assets,
-
-        // store single PDF path as string
-        pdf_path: pdfs[0],
-
-        // optionally, if your schema has it:
-        // reportInfo_raw: report,
+        pdf_path: pdfPath, // ONLY use the path from frontend - no backend fallback!
       });
     }
 
-    // 4) Insert all docs
+    // 7) Insert all docs
     const created = await MultiApproachReport.insertMany(docsToInsert);
 
     console.log("====================================");
     console.log("📦 MULTI APPROACH BATCH IMPORT SUCCESS");
     console.log("BatchId:", batchId);
     console.log("Inserted reports:", created.length);
+    console.log(
+      "PDF paths stored (from frontend):",
+      created.map((r) => r.pdf_path),
+    );
     console.log("====================================");
 
     return res.json({
@@ -880,7 +890,9 @@ exports.listMultiApproachReports = async (req, res) => {
     const limit = Math.min(Number(req.query.limit) || 200, 500);
     const companyOfficeId = extractCompanyOfficeId(req);
     const unassignedOnly = ["1", "true", "yes"].includes(
-      String(req.query.unassigned || "").trim().toLowerCase()
+      String(req.query.unassigned || "")
+        .trim()
+        .toLowerCase(),
     );
     const unassignedFilter = {
       $or: [
@@ -890,13 +902,15 @@ exports.listMultiApproachReports = async (req, res) => {
       ],
     };
     const ownerQuery = req.user?.taqeemUser
-      ? { $or: [{ user_id: req.user.id }, { taqeem_user: req.user.taqeemUser }] }
+      ? {
+          $or: [{ user_id: req.user.id }, { taqeem_user: req.user.taqeemUser }],
+        }
       : { user_id: req.user.id };
     const scopedQuery = unassignedOnly
       ? unassignedFilter
       : companyOfficeId
-      ? { company_office_id: companyOfficeId }
-      : {};
+        ? { company_office_id: companyOfficeId }
+        : {};
     const query = { $and: [ownerQuery, scopedQuery] };
     const reports = await MultiApproachReport.find(query)
       .sort({ createdAt: -1, _id: -1 })
@@ -934,7 +948,9 @@ exports.getMultiApproachReportsByUserId = async (req, res) => {
       : { user_id };
     const companyOfficeId = extractCompanyOfficeId(req);
     const unassignedOnly = ["1", "true", "yes"].includes(
-      String(req.query.unassigned || "").trim().toLowerCase()
+      String(req.query.unassigned || "")
+        .trim()
+        .toLowerCase(),
     );
     let query = baseQuery;
 

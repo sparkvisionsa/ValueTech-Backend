@@ -287,7 +287,9 @@ exports.listReportsForUser = async (req, res) => {
     }
 
     const unassignedOnly = ["1", "true", "yes"].includes(
-      String(req.query.unassigned || "").trim().toLowerCase()
+      String(req.query.unassigned || "")
+        .trim()
+        .toLowerCase(),
     );
     const companyOfficeId = unassignedOnly ? null : extractCompanyOfficeId(req);
     const baseQuery = buildUserReportQuery(req.user, null, { companyOfficeId });
@@ -609,6 +611,10 @@ exports.createDuplicateReport = async (req, res) => {
   try {
     const fs = require("fs");
 
+    console.log("=".repeat(50));
+    console.log("📄 DUPLICATE REPORT CREATION - PDF PATH DEBUG");
+    console.log("=".repeat(50));
+
     const user = req.user || {};
     const companyOfficeId = extractCompanyOfficeId(req);
     if (!user.id && !user._id) {
@@ -631,43 +637,96 @@ exports.createDuplicateReport = async (req, res) => {
 
     const pdfFile = req.files?.pdf?.[0];
 
-    // IMPORTANT: use your requested path: \uploads\static\dummy_placeholder.pdf
+    console.log("1️⃣ REQUEST BODY KEYS:", Object.keys(req.body));
+    console.log("2️⃣ skipPdfUpload flag:", skipPdfUpload);
+    console.log("3️⃣ PDF file uploaded:", !!pdfFile);
+    if (pdfFile) {
+      console.log("   - PDF filename:", pdfFile.originalname);
+      console.log("   - PDF temp path:", pdfFile.path);
+    }
+
+    // CRITICAL: Log the exact value of req.body.pdfPath
+    console.log("4️⃣ req.body.pdfPath value:", req.body.pdfPath);
+    console.log("   - Type:", typeof req.body.pdfPath);
+    console.log("   - Length:", req.body.pdfPath?.length);
+    console.log("   - Is string:", typeof req.body.pdfPath === "string");
+    console.log("   - Is undefined:", req.body.pdfPath === undefined);
+    console.log("   - Is null:", req.body.pdfPath === null);
+    console.log("   - Value (quoted):", `"${req.body.pdfPath}"`);
+
+    // Backend dummy PDF path (fallback only)
     const dummyPdfPath = path.resolve(
       process.cwd(),
       "uploads",
       "static",
       "dummy_placeholder.pdf",
     );
+    console.log("5️⃣ Backend dummy PDF path:", dummyPdfPath);
+    console.log("   - Exists:", fs.existsSync(dummyPdfPath));
 
     // Determine PDF path - priority:
-    // 1. Absolute path from request body (if provided)
+    // 1. Absolute path from request body (pdfPath) - this could be real PDF path OR bundled dummy PDF path
     // 2. Uploaded file path (if provided)
-    // 3. Dummy path (if skipPdfUpload or no PDF)
-    let pdfPath = dummyPdfPath;
+    // 3. Backend dummy path (only if skipPdfUpload is false and no other options)
+    let pdfPath = null;
+    let pathSource = "";
 
-    if (pdfFile) {
-      // Look for absolute path in request body - key is "pdfPath"
-      // Since there's only one PDF, we can use a fixed key
-      const absolutePath = req.body.pdfPath;
+    // FIRST PRIORITY: Check if frontend sent an absolute path in req.body.pdfPath
+    // log both dummy and normal path
+    console.log("   - Frontend absolute path:", req.body.pdfPath);
+    console.log("   - Backend dummy path:", req.body.dummy_pdf_path);
 
-      // Use absolute path from frontend if available
+    let absolutePath = req.body.pdfPath || req.body.dummy_pdf_path;
+
+    if (Array.isArray(absolutePath)) {
+      absolutePath = absolutePath[0];
+    }
+
+    if (
+      absolutePath &&
+      absolutePath !== "undefined" &&
+      absolutePath !== "null" &&
+      typeof absolutePath === "string" &&
+      absolutePath.trim() !== ""
+    ) {
+      pdfPath = absolutePath;
+      pathSource = "FRONTEND_ABSOLUTE_PATH";
+      console.log(
+        `✅ [PRIORITY 1] Using absolute path from frontend: ${pdfPath}`,
+      );
+
+      // Check if this looks like a bundled dummy PDF path
       if (
-        absolutePath &&
-        absolutePath !== "undefined" &&
-        absolutePath !== "null"
+        pdfPath.includes("dummy_placeholder.pdf") ||
+        pdfPath.includes("dummy")
       ) {
-        pdfPath = absolutePath;
-        console.log(`Using absolute path from frontend: ${pdfPath}`);
-      } else {
-        // Fallback to uploaded file path
-        pdfPath = path.resolve(pdfFile.path);
         console.log(
-          `No absolute path provided, using uploaded file path: ${pdfPath}`,
+          `   ℹ️ This appears to be a BUNDLED DUMMY PDF path from Electron`,
+        );
+      } else {
+        console.log(
+          `   ℹ️ This appears to be a REAL PDF path from user selection`,
         );
       }
-    } else if (!skipPdfUpload) {
-      // No PDF file uploaded and not skipping - use dummy path
+    }
+    // SECOND PRIORITY: If no absolute path but we have an uploaded PDF file
+    else if (pdfFile) {
+      pdfPath = path.resolve(pdfFile.path);
+      pathSource = "UPLOADED_FILE_PATH";
+      console.log(
+        `✅ [PRIORITY 2] No absolute path provided, using uploaded file path: ${pdfPath}`,
+      );
+    }
+    // THIRD PRIORITY: If skipPdfUpload is true, we should NOT use any PDF
+    else if (skipPdfUpload) {
+      pdfPath = null; // No PDF path when skipping upload
+      pathSource = "SKIP_UPLOAD";
+      console.log(`✅ [PRIORITY 3] PDF upload skipped, no path stored`);
+    }
+    // FOURTH PRIORITY: No PDF file and not skipping - fallback to backend dummy
+    else {
       if (!fs.existsSync(dummyPdfPath)) {
+        console.error(`❌ Backend dummy PDF not found at: ${dummyPdfPath}`);
         return res.status(500).json({
           success: false,
           message:
@@ -675,23 +734,37 @@ exports.createDuplicateReport = async (req, res) => {
         });
       }
       pdfPath = dummyPdfPath;
+      pathSource = "BACKEND_DUMMY_FALLBACK";
+      console.log(`✅ [PRIORITY 4] Using backend dummy PDF path: ${pdfPath}`);
     }
 
+    // Handle case where pdfPath might be an array (should not happen, but safe check)
     if (Array.isArray(pdfPath)) {
+      console.warn(
+        `⚠️ pdfPath is an array with ${pdfPath.length} items, taking first item`,
+      );
       pdfPath = pdfPath[0];
+      pathSource += "_ARRAY_FIXED";
     }
 
-    console.log("Final PDF path:", pdfPath);
-    console.log("skipPdfUpload:", skipPdfUpload);
-    console.log("PDF file uploaded:", !!pdfFile);
+    console.log("-".repeat(50));
+    console.log("📊 PDF PATH DECISION SUMMARY:");
+    console.log("   - Source:", pathSource);
+    console.log("   - Final PDF path:", pdfPath);
+    console.log(
+      "   - Will store in DB:",
+      pdfPath !== null ? "YES" : "NO (null)",
+    );
+    console.log("-".repeat(50));
 
     // Parse formData JSON if provided
-
     let payload = req.body || {};
     if (payload.formData) {
       try {
         payload = JSON.parse(payload.formData);
+        console.log("6️⃣ Parsed formData payload successfully");
       } catch (err) {
+        console.error("❌ Failed to parse formData:", err.message);
         return res
           .status(400)
           .json({ success: false, message: "Invalid formData payload." });
@@ -699,19 +772,23 @@ exports.createDuplicateReport = async (req, res) => {
     }
 
     // Build assets from excel
+    console.log("7️⃣ Extracting assets from Excel...");
     const assets = extractAssetsFromExcel(excelPath, {
       owner_name: payload.client_name || payload.owner_name || "",
       inspection_date: payload.inspection_date || "",
     });
 
     if (!assets.length) {
+      console.error("❌ No assets found in Excel file");
       return res.status(400).json({
         success: false,
         message: "No assets found in provided excel file.",
       });
     }
+    console.log(`   - Found ${assets.length} assets`);
 
     const valuers = sanitizeValuers(payload.valuers);
+    console.log(`   - Valuers: ${valuers.length}`);
 
     const duplicateReport = new DuplicateReport({
       user_id: user.id || user._id,
@@ -733,7 +810,7 @@ exports.createDuplicateReport = async (req, res) => {
       valuation_currency: payload.valuation_currency || "to set",
       owner_name: payload.owner_name || "",
 
-      // ✅ ALWAYS set pdf_path with the resolved path
+      // ✅ Store the resolved PDF path
       pdf_path: pdfPath,
 
       client_name: payload.client_name || "",
@@ -747,7 +824,15 @@ exports.createDuplicateReport = async (req, res) => {
       asset_data: assets,
     });
 
+    console.log("8️⃣ Saving duplicate report to database...");
+    console.log("   - PDF path being saved:", duplicateReport.pdf_path);
+    console.log("   - skipPdfUpload:", skipPdfUpload);
+    console.log("   - Has PDF file:", !!pdfFile);
+
     await duplicateReport.save();
+
+    console.log("✅ Report saved successfully with ID:", duplicateReport._id);
+    console.log("   - Stored PDF path in DB:", duplicateReport.pdf_path);
 
     try {
       await createNotification({
@@ -764,9 +849,14 @@ exports.createDuplicateReport = async (req, res) => {
           action: "created",
         },
       });
+      console.log("   - Notification created");
     } catch (notifyError) {
-      console.warn("Failed to create report notification", notifyError);
+      console.warn("   - Failed to create notification:", notifyError.message);
     }
+
+    console.log("=".repeat(50));
+    console.log("🎉 DUPLICATE REPORT CREATION COMPLETE");
+    console.log("=".repeat(50));
 
     return res.status(201).json({
       success: true,
@@ -774,7 +864,9 @@ exports.createDuplicateReport = async (req, res) => {
       data: { id: duplicateReport._id, report_id: duplicateReport.report_id },
     });
   } catch (error) {
-    console.error("Error creating duplicate report:", error);
+    console.error("💥 ERROR creating duplicate report:");
+    console.error("   - Message:", error.message);
+    console.error("   - Stack:", error.stack);
     return res.status(500).json({ success: false, message: error.message });
   }
 };
