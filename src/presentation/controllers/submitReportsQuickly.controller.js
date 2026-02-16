@@ -319,6 +319,7 @@ exports.processSubmitReportsQuicklyBatch = async (req, res) => {
     const user_id =
       req.user?.id || req.user?._id || req.user?.userId || req.user?.user_id;
     const companyOfficeId = extractCompanyOfficeId(req);
+
     if (!user_id) {
       return res.status(401).json({
         status: "failed",
@@ -332,38 +333,24 @@ exports.processSubmitReportsQuicklyBatch = async (req, res) => {
     } catch (err) {
       authUser = null;
     }
+
     const taqeemUser = req.user?.taqeemUser || authUser?.taqeemUser || null;
     const resolvedPhone = authUser?.phone || req.user?.phone || null;
     const resolvedCompany = authUser?.company || req.user?.company || null;
     const isGuestToken = Boolean(req.user?.guest) && !resolvedPhone;
-    // Add this normalization function (same as frontend)
-    const normalizeKey = (value) =>
-      (value || "")
-        .toString()
-        .trim()
-        .toLowerCase()
-        .replace(/[\W_]+/g, "");
-
-    // Optional: Add stripExtension if you use it in backend
-    const stripExtension = (filename = "") => filename.replace(/\.[^.]+$/, "");
 
     console.log("=== PDF PATH DEBUGGING ===");
-    console.log("1. All keys in req.body:", Object.keys(req.body));
-    console.log();
+    console.log("1. skipPdfUpload:", skipPdfUpload);
     console.log(
-      "2. PDF files received:",
+      "2. Excel files:",
+      excelFiles.map((f) => f.originalname),
+    );
+    console.log(
+      "3. PDF files:",
       pdfFiles.map((f) => f.originalname),
     );
-    console.log("3. skipPdfUpload:", skipPdfUpload);
-    console.log(
-      "4. PDF path map keys from body:",
-      Object.keys(req.body).filter(
-        (k) =>
-          k !== "skipPdfUpload" &&
-          k !== "companyOfficeId" &&
-          k !== "dummy_pdf_path",
-      ),
-    );
+    console.log("4. req.body keys:", Object.keys(req.body));
+    console.log();
 
     // 1) Build maps by basename (without extension)
     const excelMap = new Map(); // basename -> { file, pdfPath: '' }
@@ -378,31 +365,34 @@ exports.processSubmitReportsQuicklyBatch = async (req, res) => {
       }
     });
 
-    // Match PDFs to Excels by basename and get absolute paths from request body
+    console.log("📋 Excel map keys:", Array.from(excelMap.keys()));
+
+    // 2) Match uploaded PDFs to Excels by basename and get absolute paths from request body
     const unmatchedPdfs = [];
     pdfFiles.forEach((file) => {
       const fileName = file.originalname;
-      const fileNameWithoutExt = stripExtension(fileName); // Use stripExtension
+      const fileNameWithoutExt = path.parse(fileName).name;
       const pdfBase = normalizeKey(fileNameWithoutExt);
       const bucket = excelMap.get(pdfBase);
+
       if (!bucket) {
         unmatchedPdfs.push(file.originalname);
       } else {
         // Get the absolute path from request body (sent from frontend)
-        const absolutePath = req.body[pdfBase]; // The key is the normalized basename
+        const absolutePath = req.body[pdfBase];
 
-        // CRITICAL FIX: Only use absolute path if it exists, otherwise don't set a fallback
         if (
           absolutePath &&
           absolutePath !== "undefined" &&
           absolutePath !== "null"
         ) {
           bucket.pdfPath = absolutePath;
+          console.log(`✅ Matched PDF for ${pdfBase}: ${absolutePath}`);
         } else {
           // If no absolute path is provided from frontend, this is an error for real PDFs
           if (!skipPdfUpload) {
             console.warn(
-              `No absolute path provided for PDF: ${file.originalname}`,
+              `⚠️ No absolute path provided for PDF: ${file.originalname}`,
             );
           }
         }
@@ -418,14 +408,70 @@ exports.processSubmitReportsQuicklyBatch = async (req, res) => {
       });
     }
 
-    // Ensure every Excel has a PDF path (use dummy if skipPdfUpload or no PDF)
-    const dummyPath = req.body.dummy_pdf_path || "dummy_placeholder.pdf";
-    excelMap.forEach((value) => {
-      // Only set dummy path if no pdfPath was set AND (skipPdfUpload OR no matching PDF)
-      if (!value.pdfPath) {
-        value.pdfPath = dummyPath;
+    // 3) CRITICAL: For ALL Excel files (whether skipPdfUpload or not), check req.body for paths
+    // 3) CRITICAL: For ALL Excel files, check req.body for paths
+    console.log("\n📋 Checking req.body for PDF paths for all Excel files...");
+
+    // Build a map of normalized req.body keys for lookup
+    const bodyKeysMap = new Map();
+    Object.keys(req.body).forEach((key) => {
+      const normalizedBodyKey = key
+        .toString()
+        .normalize("NFC")
+        .trim()
+        .toLowerCase()
+        .replace(/[\W_]+/g, ""); // Match frontend normalization
+      bodyKeysMap.set(normalizedBodyKey, req.body[key]);
+    });
+
+    for (const [baseName, bucket] of excelMap.entries()) {
+      if (!bucket.pdfPath) {
+        // Normalize the baseName the same way frontend does
+        const normalizedBaseName = baseName
+          .toString()
+          .normalize("NFC")
+          .trim()
+          .toLowerCase()
+          .replace(/[\W_]+/g, "");
+
+        const pathFromBody = bodyKeysMap.get(normalizedBaseName);
+
+        console.log(
+          `  Checking ${baseName} (normalized: ${normalizedBaseName}):`,
+          {
+            found: !!pathFromBody,
+            value: pathFromBody,
+          },
+        );
+
+        if (
+          pathFromBody &&
+          pathFromBody !== "undefined" &&
+          pathFromBody !== "null"
+        ) {
+          bucket.pdfPath = pathFromBody;
+          console.log(`  ✅ Set PDF path for ${baseName}: ${pathFromBody}`);
+        }
+      }
+    }
+
+    // 4) Final fallback: Use default dummy path for any Excel still without a path
+    const defaultDummyPath = dummyPdfPath; // Use the resolved path at top of file
+    excelMap.forEach((bucket, baseName) => {
+      if (!bucket.pdfPath) {
+        bucket.pdfPath = defaultDummyPath;
+        console.log(
+          `  ⚠️ Using fallback dummy path for ${baseName}: ${defaultDummyPath}`,
+        );
       }
     });
+
+    // Debug: Show final state
+    console.log("\n📊 Final PDF paths:");
+    excelMap.forEach((bucket, baseName) => {
+      console.log(`  ${baseName} -> ${bucket.pdfPath}`);
+    });
+    console.log("===========================\n");
 
     // 2) Generate batchId for this request
     const batchId = `QR-${Date.now()}`;

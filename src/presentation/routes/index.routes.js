@@ -15,6 +15,7 @@ const ticketRoutes = require("../routes/ticket.routes");
 const notificationRoutes = require("../routes/notification.routes");
 const filesRoutes = require("../routes/files.routes");
 const newScriptsRoutes = require("../routes/newScript.routes");
+const deleteReportsRoutes = require("../routes/deleteReports.routes");
 
 // ✅ NEW
 const reportLookupRoutes = require("../routes/reportLookup.route");
@@ -42,6 +43,7 @@ router.use("/tickets", ticketRoutes);
 router.use("/notifications", notificationRoutes);
 router.use("/files", filesRoutes);
 router.use("/new-scripts", newScriptsRoutes);
+router.use("/delete-reports", deleteReportsRoutes);
 
 // ✅ NEW endpoint group
 router.use("/report-lookup", reportLookupRoutes);
