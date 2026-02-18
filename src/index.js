@@ -25,6 +25,8 @@ async function main() {
   server.listen(PORT, "0.0.0.0", () => {
     console.log(`Server listening on port ${PORT}`);
   });
+  server.keepAliveTimeout = 60000; // 60 seconds
+  server.headersTimeout = 65000; // must be > keepAliveTimeout
 }
 
 main().catch((err) => {
