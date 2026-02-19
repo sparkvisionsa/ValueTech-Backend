@@ -112,63 +112,25 @@ const buildOwnerQuery = (userContext = {}) => {
   return clauses.length === 1 ? clauses[0] : { $or: clauses };
 };
 
-// 🔹 Same mojibake fix you used in processUpload
 function fixMojibake(str) {
   if (!str) return "";
-  // reinterpret string bytes as latin1, then decode as utf8
   return Buffer.from(str, "latin1").toString("utf8");
 }
 
-// function parseExcelDate(value) {
-//   if (!value) return null;
-
-//   if (value instanceof Date) return value;
-
-//   if (typeof value === "number") {
-//     const excelEpoch = new Date(Date.UTC(1899, 11, 30)); // 1899-12-30
-//     const msPerDay = 24 * 60 * 60 * 1000;
-//     return new Date(excelEpoch.getTime() + value * msPerDay);
-//   }
-
-//   if (typeof value === "string") {
-//     const trimmed = value.trim();
-//     if (!trimmed) return null;
-
-//     if (/^\d+$/.test(trimmed)) {
-//       const serial = parseInt(trimmed, 10);
-//       const excelEpoch = new Date(Date.UTC(1899, 11, 30));
-//       const msPerDay = 24 * 60 * 60 * 1000;
-//       return new Date(excelEpoch.getTime() + serial * msPerDay);
-//     }
-
-//     const parts = trimmed.split(/[\/\-]/).map((p) => p.trim());
-//     if (parts.length !== 3) return null;
-
-//     const [d, m, y] = parts.map((p) => parseInt(p, 10));
-//     if (!d || !m || !y) return null;
-
-//     return new Date(y, m - 1, d);
-//   }
-
-//   return null;
-// }
-
 function toYMDFromDate(d) {
   if (!(d instanceof Date) || isNaN(d.getTime())) return null;
-  return d.toISOString().slice(0, 10); // yyyy-mm-dd
+  return d.toISOString().slice(0, 10);
 }
 
 function parseExcelDate(value) {
   if (!value) return null;
 
-  // Already a JS Date
   if (value instanceof Date) {
     return toYMDFromDate(value);
   }
 
-  // Excel serial number
   if (typeof value === "number") {
-    const excelEpoch = new Date(Date.UTC(1899, 11, 30)); // 1899-12-30
+    const excelEpoch = new Date(Date.UTC(1899, 11, 30));
     const msPerDay = 24 * 60 * 60 * 1000;
     const d = new Date(excelEpoch.getTime() + value * msPerDay);
     return toYMDFromDate(d);
@@ -178,7 +140,6 @@ function parseExcelDate(value) {
     const trimmed = value.trim();
     if (!trimmed) return null;
 
-    // numeric serial in string
     if (/^\d+$/.test(trimmed)) {
       const serial = parseInt(trimmed, 10);
       const excelEpoch = new Date(Date.UTC(1899, 11, 30));
@@ -187,7 +148,6 @@ function parseExcelDate(value) {
       return toYMDFromDate(d);
     }
 
-    // allow: dd/mm/yyyy or dd-mm-yyyy (your current behavior)
     const parts = trimmed.split(/[\/\-]/).map((p) => p.trim());
     if (parts.length !== 3) return null;
 
@@ -197,7 +157,6 @@ function parseExcelDate(value) {
     const yNum = parseInt(yStr, 10);
     if (!dNum || !mNum || !yNum) return null;
 
-    // build as UTC to avoid timezone shifting
     const dt = new Date(Date.UTC(yNum, mNum - 1, dNum));
     return toYMDFromDate(dt);
   }
@@ -213,7 +172,7 @@ function ensureTempPdf(batch_id, assetId) {
   const tempPath = path.join(tempDir, tempFileName);
 
   if (!fs.existsSync(tempPath)) {
-    fs.writeFileSync(tempPath, ""); // empty placeholder
+    fs.writeFileSync(tempPath, "");
   }
 
   return path.resolve(tempPath);
@@ -236,12 +195,6 @@ function convertArabicDigits(str) {
   return str.replace(/[٠-٩]/g, (d) => map[d] ?? d);
 }
 
-/**
- * Detect valuer column sets from headers.
- * We require base headers:
- *   valuerId, valuerName, percentage
- * Excel will rename duplicates as valuerId_1, valuerId_2, etc.
- */
 function detectValuerColumnsOrThrow(exampleRow) {
   const keys = Object.keys(exampleRow || {});
   const idKeys = [];
@@ -249,7 +202,7 @@ function detectValuerColumnsOrThrow(exampleRow) {
   const pctKeys = [];
 
   for (const k of keys) {
-    const base = k.split("_")[0]; // e.g. "valuerId" from "valuerId_1"
+    const base = k.split("_")[0];
     const lowerBase = base.toLowerCase();
 
     if (lowerBase === "valuerid") {
@@ -265,9 +218,6 @@ function detectValuerColumnsOrThrow(exampleRow) {
   nameKeys.sort();
   pctKeys.sort();
 
-  const hasBaseName = nameKeys.length > 0;
-  const hasBasePct = pctKeys.length > 0;
-
   const hasAnyValuerCols =
     idKeys.length > 0 || nameKeys.length > 0 || pctKeys.length > 0;
 
@@ -281,7 +231,7 @@ function detectValuerColumnsOrThrow(exampleRow) {
     };
   }
 
-  if (!hasBaseName || !hasBasePct) {
+  if (!nameKeys.length || !pctKeys.length) {
     throw new Error(
       "Market sheet must contain headers 'valuerName' and 'percentage'. " +
         "If there are multiple valuers, Excel will create valuerName_1, percentage_1, etc.",
@@ -289,17 +239,9 @@ function detectValuerColumnsOrThrow(exampleRow) {
   }
 
   const allKeys = Array.from(new Set([...idKeys, ...nameKeys, ...pctKeys]));
-
   return { idKeys, nameKeys, pctKeys, allKeys, hasValuerColumns: true };
 }
 
-/**
- * Build valuers[] for a given asset row using detected column keys.
- * Example:
- *   idKeys    = ["valuerId", "valuerId_1", "valuerId_2"]
- *   nameKeys  = ["valuerName", "valuerName_1", "valuerName_2"]
- *   pctKeys   = ["percentage", "percentage_1", "percentage_2"]
- */
 function buildValuersForAsset(assetRow, valuerCols) {
   const { idKeys, nameKeys, pctKeys } = valuerCols;
   const maxLen = Math.max(idKeys.length, nameKeys.length, pctKeys.length);
@@ -314,12 +256,10 @@ function buildValuersForAsset(assetRow, valuerCols) {
       idKey && Object.prototype.hasOwnProperty.call(assetRow, idKey)
         ? assetRow[idKey]
         : null;
-
     const name =
       nameKey && Object.prototype.hasOwnProperty.call(assetRow, nameKey)
         ? assetRow[nameKey]
         : null;
-
     const pctRaw =
       pctKey && Object.prototype.hasOwnProperty.call(assetRow, pctKey)
         ? assetRow[pctKey]
@@ -330,28 +270,21 @@ function buildValuersForAsset(assetRow, valuerCols) {
       (name === null || name === "" || name === undefined) &&
       (pctRaw === null || pctRaw === "" || pctRaw === undefined);
 
-    // skip completely empty valuers
     if (allEmpty) continue;
 
     const pctString = convertArabicDigits(String(pctRaw ?? "")).trim();
-    if (!pctString) {
-      // Skip valuers that don't provide a percentage
-      continue;
-    }
+    if (!pctString) continue;
 
     const pctNum = Number(
       pctString.replace(/[%٪]/g, "").replace(/,/g, ".").trim(),
     );
 
-    if (Number.isNaN(pctNum)) {
-      // Skip non-numeric percentages
-      continue;
-    }
+    if (Number.isNaN(pctNum)) continue;
 
     const percentage = pctNum >= 0 && pctNum <= 1 ? pctNum * 100 : pctNum;
 
     valuers.push({
-      valuerId: id != null && id !== "" ? String(id) : "", // you can enforce non-empty later if you want
+      valuerId: id != null && id !== "" ? String(id) : "",
       valuerName: name || "",
       percentage,
     });
@@ -360,12 +293,101 @@ function buildValuersForAsset(assetRow, valuerCols) {
   return valuers;
 }
 
+// ---------- Body key decoder ----------
+//
+// multipart/form-data body keys containing Arabic arrive as mojibake:
+// their UTF-8 bytes were interpreted as latin1 by the HTTP parser.
+// e.g. "ر ق ط 6835" arrives as "Ø± Ù\x82 Ø· 6835"
+//
+// Strategy: build a Map whose keys are ALL of:
+//   1. the raw key as-received (handles plain ASCII like "test1")
+//   2. fixMojibake(rawKey)  – the correctly decoded Arabic string
+//   3. normalizeKey() variants of both (NFC + collapse spaces)
+//   4. no-spaces variants of both
+//
+// Lookups must go through this map, never req.body[key] directly.
+
+function buildDecodedBodyMap(body) {
+  const map = new Map();
+
+  for (const [rawKey, value] of Object.entries(body || {})) {
+    if (typeof value !== "string") continue;
+
+    const decodedKey = fixMojibake(rawKey);
+
+    // All key variants we want to be able to look up by
+    const variants = [
+      rawKey,
+      decodedKey,
+      normalizeKey(rawKey),
+      normalizeKey(decodedKey),
+      rawKey.replace(/\s+/g, ""),
+      decodedKey.replace(/\s+/g, ""),
+    ];
+
+    for (const v of variants) {
+      if (v && !map.has(v)) {
+        map.set(v, value);
+      }
+    }
+  }
+
+  return map;
+}
+
 // ---------- main controller ----------
 
 exports.processElrajhiExcel = async (req, res) => {
   try {
+    // ============= STARTUP LOGGING =============
+    console.log("\n" + "=".repeat(80));
+    console.log("body", req.body);
+    console.log("📥 ELRAJHI BATCH UPLOAD REQUEST RECEIVED");
+    console.log("=".repeat(80));
+    console.log(`🕐 Timestamp: ${new Date().toISOString()}`);
+    console.log(`👤 User: ${req.user?.id || req.user?._id || "anonymous"}`);
+    console.log(
+      `🏢 Company Office ID: ${extractCompanyOfficeId(req) || "none"}`,
+    );
+
+    // ============= BUILD DECODED BODY MAP =============
+    // Keys with Arabic text arrive as mojibake — decode them all upfront.
+    // Every subsequent lookup uses decodedBody.get(key) instead of req.body[key].
+    const decodedBody = buildDecodedBodyMap(req.body);
+
+    console.log("\n🔑 DECODED BODY MAP:");
+    for (const [k, v] of decodedBody.entries()) {
+      if (v.includes("/") || v.includes("\\")) {
+        console.log(`  "${k}" -> "${v}"`);
+      }
+    }
+
+    // Log files received
+    console.log("\n📁 FILES RECEIVED:");
+    console.log(`  - Excel files: ${req.files?.excel?.length || 0}`);
+    if (req.files?.excel?.length) {
+      req.files.excel.forEach((file, idx) => {
+        console.log(
+          `    Excel ${idx + 1}: ${file.originalname} (${file.size} bytes)`,
+        );
+      });
+    }
+
+    console.log(`\n  - PDF files: ${req.files?.pdfs?.length || 0}`);
+    if (req.files?.pdfs?.length) {
+      req.files.pdfs.forEach((file, idx) => {
+        const fixedName = fixMojibake(file.originalname);
+        console.log(
+          `    PDF ${idx + 1}: raw="${file.originalname}" fixed="${fixedName}" path="${file.path}"`,
+        );
+      });
+    } else {
+      console.log(`    No PDF files uploaded`);
+    }
+
     // 0) Validate files
     if (!req.files || !req.files.excel || !req.files.excel[0]) {
+      console.error("❌ Validation failed: No Excel file provided");
       return res.status(400).json({
         status: "failed",
         error: "Excel file (field 'excel') is required",
@@ -383,18 +405,14 @@ exports.processElrajhiExcel = async (req, res) => {
     const taqeemUser = userContext.taqeemUser || null;
     const companyOfficeId = extractCompanyOfficeId(req);
 
-    // if (!userPhone) {
-    //   return res.status(400).json({
-    //     status: "failed",
-    //     error: "User phone is required to submit reports.",
-    //   });
-    // }
-
     const excelFile = req.files.excel[0].path;
     const sourceExcelName = req.files.excel[0].originalname || "elrajhi.xlsx";
     const pdfFiles = req.files.pdfs || [];
 
+    console.log(`\n📂 Excel: ${sourceExcelName} | PDFs: ${pdfFiles.length}`);
+
     // 1) Read Excel
+    console.log("\n📖 Reading Excel file...");
     const workbook = xlsx.readFile(excelFile);
     const reportSheet = workbook.Sheets["Report Info"];
     const marketSheet = workbook.Sheets["market"];
@@ -411,23 +429,23 @@ exports.processElrajhiExcel = async (req, res) => {
     });
     const marketRows = xlsx.utils.sheet_to_json(marketSheet, { defval: "" });
 
-    if (!reportInfoRows.length) {
-      return res.status(400).json({
-        status: "failed",
-        error: "Sheet 'Report Info' is empty",
-      });
-    }
+    console.log(`  - Report Info rows: ${reportInfoRows.length}`);
+    console.log(`  - Market rows: ${marketRows.length}`);
 
+    if (!reportInfoRows.length) {
+      return res
+        .status(400)
+        .json({ status: "failed", error: "Sheet 'Report Info' is empty" });
+    }
     if (!marketRows.length) {
-      return res.status(400).json({
-        status: "failed",
-        error: "Sheet 'market' has no asset rows",
-      });
+      return res
+        .status(400)
+        .json({ status: "failed", error: "Sheet 'market' has no asset rows" });
     }
 
     const report = reportInfoRows[0];
 
-    // 2) Parse dates from report info
+    // 2) Parse dates
     const valued_at = parseExcelDate(
       report.valued_at ||
         report["valued_at\n"] ||
@@ -447,15 +465,16 @@ exports.processElrajhiExcel = async (req, res) => {
         report["inspection date"],
     );
 
-    // 3) Detect valuer columns – THROW if headers DON'T match
+    console.log(
+      `\n📅 valued_at=${valued_at} submitted_at=${submitted_at} inspection_date=${inspection_date}`,
+    );
+
+    // 3) Detect valuer columns
     let valuerCols;
     try {
       valuerCols = detectValuerColumnsOrThrow(marketRows[0]);
     } catch (e) {
-      return res.status(400).json({
-        status: "failed",
-        error: e.message,
-      });
+      return res.status(400).json({ status: "failed", error: e.message });
     }
 
     const selectedValuers = cleanValuersPayload(req.body?.valuers);
@@ -482,64 +501,142 @@ exports.processElrajhiExcel = async (req, res) => {
       });
     }
 
-    // 4) Build pdfMap from uploaded PDFs (with mojibake fix)
-    const pdfMap = {};
-    pdfFiles.forEach((file) => {
+    // ============= PDF MAPPING WITH MOJIBAKE-AWARE PATH RESOLUTION =============
+    console.log("\n" + "=".repeat(80));
+    console.log("📄 PDF MAPPING");
+    console.log("=".repeat(80));
+
+    const pdfMap = new Map(); // lookup key  -> absolute path
+    const pdfOriginalNames = new Map(); // lookup key  -> display filename
+    const pdfPathSource = new Map(); // lookup key  -> "user_system" | "backend_upload"
+
+    pdfFiles.forEach((file, idx) => {
       const rawName = file.originalname;
       const fixedName = fixMojibake(rawName);
+      const parsedPath = path.parse(fixedName);
+      const baseName = parsedPath.name;
+      const ext = parsedPath.ext;
 
-      console.log("PDF rawName:", rawName);
-      console.log("PDF fixedName:", fixedName);
+      console.log(`\n[PDF ${idx + 1}]`);
+      console.log(
+        `  raw="${rawName}" | fixed="${fixedName}" | base="${baseName}"`,
+      );
 
-      const baseName = path.parse(fixedName).name;
-      const normalizedKey = normalizeKey(baseName);
+      // Generate all key variants for this PDF filename.
+      // These are the keys we'll store in pdfMap AND the keys we'll look up
+      // in decodedBody to find the user's absolute path.
+      const fileKeyVariants = [
+        fixedName,
+        baseName,
+        normalizeKey(fixedName),
+        normalizeKey(baseName),
+        fixedName.replace(/\s+/g, ""),
+        baseName.replace(/\s+/g, ""),
+        `${baseName}${ext}`,
+      ].filter((k) => k && k.trim());
 
-      // Look up the absolute path using normalizedKey
-      const absolutePath = req.body[normalizedKey];
+      // Find the absolute path the frontend sent for this PDF.
+      // decodedBody already has keys in all variants (raw, fixed, normalized, no-spaces)
+      // so a simple .get() across our filename variants is enough.
+      let absolutePath = null;
+      let matchedBodyKey = null;
 
-      const fullPath =
-        absolutePath && absolutePath !== "undefined" && absolutePath !== "null"
-          ? absolutePath
-          : path.resolve(file.path);
+      for (const variant of fileKeyVariants) {
+        const found = decodedBody.get(variant);
+        if (found && found !== "undefined" && found !== "null") {
+          absolutePath = found;
+          matchedBodyKey = variant;
+          break;
+        }
+      }
 
-      // Store with normalizedKey as the key
-      pdfMap[normalizedKey] = fullPath;
+      const finalPath = absolutePath || path.resolve(file.path);
+      const pathSource = absolutePath ? "user_system" : "backend_upload";
 
-      console.log(`PDF mapping: ${normalizedKey} -> ${fullPath}`);
+      if (absolutePath) {
+        console.log(
+          `  ✅ Matched body key="${matchedBodyKey}" -> "${absolutePath}"`,
+        );
+      } else {
+        console.log(
+          `  ⚠️  No body match found — using backend upload path: "${finalPath}"`,
+        );
+      }
+
+      // Store every key variant in pdfMap so asset matching can find this PDF
+      const uniqueKeys = [...new Set(fileKeyVariants)];
+      uniqueKeys.forEach((key) => {
+        pdfMap.set(key, finalPath);
+        pdfOriginalNames.set(key, fixedName);
+        pdfPathSource.set(key, pathSource);
+      });
+
+      console.log(
+        `  Stored under ${uniqueKeys.length} key(s): ${uniqueKeys.slice(0, 4).join(" | ")}${uniqueKeys.length > 4 ? "..." : ""}`,
+      );
     });
+    const knownNonPathFields = new Set([
+      "valuers",
+      "excel",
+      "pdfs",
+      "companyOfficeId",
+      "company_office_id",
+    ]);
+    for (const [key, value] of decodedBody.entries()) {
+      if (knownNonPathFields.has(key)) continue;
+      // Only treat as a path if the value looks like an absolute path
+      if (!value || (!value.startsWith("/") && !value.match(/^[A-Za-z]:\\/)))
+        continue;
+      // Skip if already registered (real PDF upload takes precedence)
+      if (pdfMap.has(key)) continue;
 
-    console.log("PDF files received:", pdfFiles.length);
-    console.log("PDF map keys (normalized):", Object.keys(pdfMap));
+      console.log(`\n[Body path] key="${key}" -> "${value}"`);
+      pdfMap.set(key, value);
+      pdfOriginalNames.set(key, "dummy_placeholder.pdf");
+      pdfPathSource.set(key, "dummy");
+    }
 
-    // 5) Generate batch_id for this upload
+    console.log(`\n📊 pdfMap size: ${pdfMap.size}`);
+    console.log(`\n📊 pdfMap size: ${pdfMap.size}`);
+    console.log(`   Keys: ${Array.from(pdfMap.keys()).join(" | ")}`);
+    console.log("=".repeat(80) + "\n");
+
+    // 4) Generate batch_id
     const batch_id = `ELR-${Date.now()}`;
+    console.log(`🆔 batch_id: ${batch_id}`);
 
-    // 6) Build docs: one per asset
+    // 5) Build one doc per asset row
     const docs = [];
+    let userSystemPathMatches = 0;
+    let backendPathMatches = 0;
+    let placeholderMatches = 0;
+
+    console.log("\n" + "=".repeat(80));
+    console.log("🔍 ASSET → PDF MATCHING");
+    console.log("=".repeat(80));
 
     for (let index = 0; index < marketRows.length; index++) {
       const assetRow = marketRows[index];
-      const rawAssetName = assetRow.asset_name;
-      if (!rawAssetName) continue; // skip row if no asset_name
+      const originalAssetName = assetRow.asset_name;
 
-      // Normalize asset_name once (like trimmedCode in your other controller)
-      const assetName = normalizeKey(rawAssetName);
+      if (!originalAssetName) {
+        console.log(`[Asset ${index + 1}] ⚠️ Skipping — no asset_name`);
+        continue;
+      }
+
       const asset_id = assetRow.id || index + 1;
-
-      // value from market.final_value
       const value = Number(assetRow.final_value) || 0;
 
-      // client_name = report.client_name + (id) + asset_name
+      console.log(`\n[Asset ${index + 1}] "${originalAssetName}"`);
+
       const baseClientName =
         report.client_name ||
         report["client_name\n"] ||
         report["Client Name"] ||
         "";
-      const client_name = `${baseClientName} (${asset_id}) ${assetName}`;
-
+      const client_name = `${baseClientName} (${asset_id}) ${originalAssetName}`;
       const region = assetRow.region || report.region || "";
       const city = assetRow.city || report.city || "";
-
       const asset_usage =
         assetRow["asset_usage_id\n"] ||
         assetRow.asset_usage_id ||
@@ -549,13 +646,10 @@ exports.processElrajhiExcel = async (req, res) => {
       const hasValuerData =
         valuerCols.hasValuerColumns &&
         valuerCols.allKeys.some((key) => {
-          const value = assetRow[key];
-          return (
-            value !== null && value !== undefined && String(value).trim() !== ""
-          );
+          const v = assetRow[key];
+          return v !== null && v !== undefined && String(v).trim() !== "";
         });
 
-      // Build valuers[] for this asset from selected valuers or Excel (if provided).
       const valuers = hasSelectedValuers
         ? selectedValuers.map((v) => ({ ...v }))
         : hasValuerData
@@ -567,30 +661,74 @@ exports.processElrajhiExcel = async (req, res) => {
           (sum, v) => sum + (Number(v.percentage) || 0),
           0,
         );
-
         const roundedTotal = Math.round(totalPct * 100) / 100;
-
-        // allow tiny floating error, but must be 100
         if (Math.abs(roundedTotal - 100) > 0.001) {
           return res.status(400).json({
             status: "failed",
-            error: `Asset "${assetName}" (row ${index + 1}) has total valuers percentage = ${roundedTotal}%. It must be exactly 100%.`,
+            error: `Asset "${originalAssetName}" (row ${index + 1}) valuer total = ${roundedTotal}%. Must be 100%.`,
           });
         }
       }
 
-      // ---- PDF resolution ----
-      let pdf_path = pdfMap[assetName] || null; // assetName is already normalized
+      // --- PDF matching ---
+      // Build lookup key variants for this asset name, mirroring what we stored in pdfMap.
+      const normalizedAssetName = normalizeKey(originalAssetName);
 
+      const assetKeyVariants = [
+        originalAssetName,
+        `${originalAssetName}.pdf`,
+        originalAssetName.replace(/\s+/g, ""),
+        `${originalAssetName.replace(/\s+/g, "")}.pdf`,
+        normalizedAssetName,
+        `${normalizedAssetName}.pdf`,
+        normalizedAssetName.replace(/\s+/g, ""),
+        `${normalizedAssetName.replace(/\s+/g, "")}.pdf`,
+      ];
+
+      let pdf_path = null;
+      let originalPdfName = null;
+      let pathSource = null;
+
+      // Exact match
+      for (const key of assetKeyVariants) {
+        if (pdfMap.has(key)) {
+          pdf_path = pdfMap.get(key);
+          originalPdfName = pdfOriginalNames.get(key);
+          pathSource = pdfPathSource.get(key);
+          console.log(`  ✅ EXACT match on key="${key}"`);
+          break;
+        }
+      }
+
+      // Fuzzy match fallback
       if (!pdf_path) {
-        console.warn(
-          "No PDF found for asset:",
-          assetName,
-          "using dummy-placeholder.pdf",
-        );
-        pdf_path = getPlaceholderPdfPath();
+        const allPdfKeys = Array.from(pdfMap.keys());
+        for (const pdfKey of allPdfKeys) {
+          if (
+            pdfKey.includes(originalAssetName) ||
+            originalAssetName.includes(pdfKey) ||
+            pdfKey.includes(normalizedAssetName) ||
+            normalizedAssetName.includes(pdfKey)
+          ) {
+            pdf_path = pdfMap.get(pdfKey);
+            originalPdfName = pdfOriginalNames.get(pdfKey);
+            pathSource = pdfPathSource.get(pdfKey);
+            console.log(`  🔍 FUZZY match on pdfKey="${pdfKey}"`);
+            break;
+          }
+        }
+      }
+
+      if (pdf_path) {
+        if (pathSource === "user_system") userSystemPathMatches++;
+        else backendPathMatches++;
+        console.log(`  📄 PDF: ${pathSource} -> "${pdf_path}"`);
       } else {
-        console.log(`PDF found for asset ${assetName}: ${pdf_path}`);
+        pdf_path = getPlaceholderPdfPath();
+        originalPdfName = "dummy_placeholder.pdf";
+        pathSource = "placeholder";
+        placeholderMatches++;
+        console.log(`  📄 PDF: placeholder -> "${pdf_path}"`);
       }
 
       docs.push({
@@ -603,7 +741,6 @@ exports.processElrajhiExcel = async (req, res) => {
         company: userContext.company || null,
         company_office_id: companyOfficeId,
 
-        // Report-level (from Report Info)
         title: report.title,
         client_name,
         purpose_id: report.purpose_id,
@@ -623,34 +760,40 @@ exports.processElrajhiExcel = async (req, res) => {
         region,
         city,
 
-        // Per-asset overrides
         final_value: value,
         asset_id,
-        asset_name: assetName, // store normalized name
+        asset_name: normalizedAssetName,
+        asset_original_name: originalAssetName,
         asset_usage,
 
-        // Keep full market row
         asset: assetRow,
-
-        // Structured valuers[]
         valuers,
 
         pdf_path,
+        pdf_original_name: originalPdfName,
+        pdf_source: pathSource,
+
         submit_state: 0,
         report_status: "INCOMPLETE",
       });
     }
 
+    console.log("\n" + "=".repeat(80));
+    console.log(
+      `📊 Assets: ${docs.length} | user_system: ${userSystemPathMatches} | backend: ${backendPathMatches} | placeholder: ${placeholderMatches}`,
+    );
+    console.log("=".repeat(80));
+
     if (!docs.length) {
-      return res.status(400).json({
-        status: "failed",
-        error: "No valid asset rows found to create reports.",
-      });
+      return res
+        .status(400)
+        .json({ status: "failed", error: "No valid asset rows found." });
     }
 
-    // 7) Insert into DB
+    // 6) Insert into DB
+    console.log("\n💾 Inserting...");
     const created = await UrgentReport.insertMany(docs);
-    // Ensure all inserted docs carry the user phone (in case of missing values)
+
     await UrgentReport.updateMany(
       { batch_id },
       {
@@ -662,27 +805,42 @@ exports.processElrajhiExcel = async (req, res) => {
       },
     );
 
-    console.log("====================================");
-    console.log("📦 ELRAJHI BATCH IMPORT SUCCESS");
-    console.log("batch_id:", batch_id);
-    console.log("Inserted reports:", created.length);
-    console.log("====================================");
+    console.log(`✅ Inserted ${created.length} reports`);
 
-    // 8) Response: send the batch of reports
+    const pathSources = docs.reduce((acc, doc) => {
+      const src = doc.pdf_source || "unknown";
+      acc[src] = (acc[src] || 0) + 1;
+      return acc;
+    }, {});
+
     return res.json({
       status: "success",
       batchId: batch_id,
       created: created.length,
       excelName: sourceExcelName,
       downloadPath: `/api/elrajhi-upload/export/${batch_id}`,
-      reports: created,
+      summary: {
+        totalReports: created.length,
+        pathSources,
+        userSystemPaths: userSystemPathMatches,
+        backendPaths: backendPathMatches,
+        placeholders: placeholderMatches,
+        sampleAssets: docs.slice(0, 3).map((d) => ({
+          name: d.asset_original_name,
+          pdfSource: d.pdf_source,
+          pdfPath: d.pdf_path,
+        })),
+      },
+      reports: created.map((report) => ({
+        ...report.toObject(),
+        asset_name: report.asset_original_name || report.asset_name,
+        pdf_name: report.pdf_original_name,
+        pdf_source: report.pdf_source,
+      })),
     });
   } catch (err) {
-    console.error("Elrajhi batch upload error:", err);
-    return res.status(500).json({
-      status: "failed",
-      error: err.message,
-    });
+    console.error("\n❌ ELRAJHI BATCH UPLOAD ERROR:", err);
+    return res.status(500).json({ status: "failed", error: err.message });
   }
 };
 
@@ -691,10 +849,9 @@ exports.exportElrajhiBatch = async (req, res) => {
   try {
     const { batchId } = req.params;
     if (!batchId) {
-      return res.status(400).json({
-        status: "failed",
-        error: "batchId is required",
-      });
+      return res
+        .status(400)
+        .json({ status: "failed", error: "batchId is required" });
     }
 
     const companyOfficeId = extractCompanyOfficeId(req);
@@ -703,19 +860,16 @@ exports.exportElrajhiBatch = async (req, res) => {
     const query = Object.keys(ownerQuery).length
       ? { $and: [baseQuery, ownerQuery] }
       : baseQuery;
-    if (companyOfficeId) {
-      query.company_office_id = companyOfficeId;
-    }
+    if (companyOfficeId) query.company_office_id = companyOfficeId;
 
     const reports = await UrgentReport.find(query)
       .sort({ asset_id: 1, createdAt: 1 })
       .lean();
 
     if (!reports.length) {
-      return res.status(404).json({
-        status: "failed",
-        error: "No reports found for this batch.",
-      });
+      return res
+        .status(404)
+        .json({ status: "failed", error: "No reports found for this batch." });
     }
 
     const baseName = reports[0].source_excel_name || `${batchId}.xlsx`;
@@ -733,7 +887,6 @@ exports.exportElrajhiBatch = async (req, res) => {
     const ws = xlsx.utils.aoa_to_sheet([header, ...rows]);
     const wb = xlsx.utils.book_new();
     xlsx.utils.book_append_sheet(wb, ws, "Reports");
-
     const buffer = xlsx.write(wb, { type: "buffer", bookType: "xlsx" });
 
     res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
@@ -745,10 +898,9 @@ exports.exportElrajhiBatch = async (req, res) => {
     return res.send(buffer);
   } catch (err) {
     console.error("Export Elrajhi batch error:", err);
-    return res.status(500).json({
-      status: "failed",
-      error: "Failed to generate export",
-    });
+    return res
+      .status(500)
+      .json({ status: "failed", error: "Failed to generate export" });
   }
 };
 
@@ -772,9 +924,7 @@ exports.listElrajhiBatches = async (req, res) => {
           _id: "$batch_id",
           totalReports: { $sum: 1 },
           withReportId: {
-            $sum: {
-              $cond: [{ $ifNull: ["$report_id", false] }, 1, 0],
-            },
+            $sum: { $cond: [{ $ifNull: ["$report_id", false] }, 1, 0] },
           },
           completedReports: {
             $sum: {
@@ -793,14 +943,10 @@ exports.listElrajhiBatches = async (req, res) => {
             },
           },
           sentReports: {
-            $sum: {
-              $cond: [{ $eq: ["$report_status", "SENT"] }, 1, 0],
-            },
+            $sum: { $cond: [{ $eq: ["$report_status", "SENT"] }, 1, 0] },
           },
           confirmedReports: {
-            $sum: {
-              $cond: [{ $eq: ["$report_status", "CONFIRMED"] }, 1, 0],
-            },
+            $sum: { $cond: [{ $eq: ["$report_status", "CONFIRMED"] }, 1, 0] },
           },
           lastCreatedAt: { $max: "$createdAt" },
           excelName: { $first: "$source_excel_name" },
@@ -836,10 +982,9 @@ exports.getElrajhiBatchReports = async (req, res) => {
   try {
     const { batchId } = req.params;
     if (!batchId) {
-      return res.status(400).json({
-        status: "failed",
-        error: "batchId is required",
-      });
+      return res
+        .status(400)
+        .json({ status: "failed", error: "batchId is required" });
     }
 
     const companyOfficeId = extractCompanyOfficeId(req);
@@ -848,9 +993,7 @@ exports.getElrajhiBatchReports = async (req, res) => {
     const query = Object.keys(ownerQuery).length
       ? { $and: [baseQuery, ownerQuery] }
       : baseQuery;
-    if (companyOfficeId) {
-      query.company_office_id = companyOfficeId;
-    }
+    if (companyOfficeId) query.company_office_id = companyOfficeId;
 
     const reports = await UrgentReport.find(query)
       .sort({ createdAt: 1 })
@@ -907,10 +1050,9 @@ exports.updateElrajhiReport = async (req, res) => {
   try {
     const { reportId } = req.params;
     if (!reportId) {
-      return res.status(400).json({
-        status: "failed",
-        error: "reportId is required",
-      });
+      return res
+        .status(400)
+        .json({ status: "failed", error: "reportId is required" });
     }
 
     const isMongoId = mongoose.Types.ObjectId.isValid(reportId);
@@ -920,20 +1062,16 @@ exports.updateElrajhiReport = async (req, res) => {
       ? { $or: [{ report_id: reportId }, { _id: reportId }] }
       : { report_id: reportId };
     const query = { ...baseQuery };
-    if (companyOfficeId) {
-      query.company_office_id = companyOfficeId;
-    }
+    if (companyOfficeId) query.company_office_id = companyOfficeId;
     if (Object.keys(ownerQuery).length) {
       query.$and = query.$and ? [...query.$and, ownerQuery] : [ownerQuery];
     }
 
     const report = await UrgentReport.findOne(query);
-
     if (!report) {
-      return res.status(404).json({
-        status: "failed",
-        error: "Report not found",
-      });
+      return res
+        .status(404)
+        .json({ status: "failed", error: "Report not found" });
     }
 
     const body = req.body || {};
@@ -943,9 +1081,7 @@ exports.updateElrajhiReport = async (req, res) => {
       if (value === undefined) return;
       const nextValue =
         typeof transform === "function" ? transform(value) : value;
-      if (nextValue !== undefined) {
-        updates[field] = nextValue;
-      }
+      if (nextValue !== undefined) updates[field] = nextValue;
     };
 
     setField("report_id", body.report_id, (val) => {
@@ -980,22 +1116,16 @@ exports.updateElrajhiReport = async (req, res) => {
 
     if (body.submit_state !== undefined) {
       const submitState = toNumber(body.submit_state);
-      if (submitState !== undefined) {
-        updates.submit_state = submitState;
-      }
+      if (submitState !== undefined) updates.submit_state = submitState;
     }
 
     if (body.last_checked_at) {
       const ts = new Date(body.last_checked_at);
-      if (!isNaN(ts.getTime())) {
-        updates.last_checked_at = ts;
-      }
+      if (!isNaN(ts.getTime())) updates.last_checked_at = ts;
     }
 
     const cleanedValuers = cleanValuersPayload(body.valuers);
-    if (cleanedValuers) {
-      updates.valuers = cleanedValuers;
-    }
+    if (cleanedValuers) updates.valuers = cleanedValuers;
 
     const uploadedPdfPath =
       (req.file && req.file.path) ||
@@ -1029,10 +1159,9 @@ exports.getReportById = async (req, res) => {
   try {
     const { reportId } = req.params;
     if (!reportId) {
-      return res.status(400).json({
-        status: "failed",
-        error: "reportId is required",
-      });
+      return res
+        .status(400)
+        .json({ status: "failed", error: "reportId is required" });
     }
 
     const isMongoId = mongoose.Types.ObjectId.isValid(reportId);
@@ -1042,26 +1171,19 @@ exports.getReportById = async (req, res) => {
       ? { $or: [{ report_id: reportId }, { _id: reportId }] }
       : { report_id: reportId };
     const query = { ...baseQuery };
-    if (companyOfficeId) {
-      query.company_office_id = companyOfficeId;
-    }
+    if (companyOfficeId) query.company_office_id = companyOfficeId;
     if (Object.keys(ownerQuery).length) {
       query.$and = query.$and ? [...query.$and, ownerQuery] : [ownerQuery];
     }
 
     const report = await UrgentReport.findOne(query).lean();
-
     if (!report) {
-      return res.status(404).json({
-        status: "failed",
-        error: "Report not found",
-      });
+      return res
+        .status(404)
+        .json({ status: "failed", error: "Report not found" });
     }
 
-    return res.json({
-      status: "success",
-      report,
-    });
+    return res.json({ status: "success", report });
   } catch (err) {
     console.error("Get report by ID error:", err);
     return res.status(500).json({
