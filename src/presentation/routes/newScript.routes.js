@@ -27,6 +27,11 @@ const {
   updateReportPgCount,
   updateReportCheckStatus,
   updateReportTimestamp,
+  getReportDeletions,
+  storeReportDeletion,
+  getCheckedReports,
+  getValidationResults,
+  getReportsByBatchIdFromUrgent,
 } = require("../controllers/newScript.controller");
 
 router.get("/batch/:batch_id", getReportsByBatchId);
@@ -52,6 +57,12 @@ router.patch("/update-check-status", updateReportCheckStatus);
 router.patch("/update-elrajhi-status/:record_id", updateElrajhiStatus);
 router.patch("/update-report-timestamp/:record_id", updateReportTimestamp);
 router.patch("/:report_id/pg-count", updateReportPgCount);
+// Report Deletions
+router.get("/report-deletions", getReportDeletions);
+router.post("/report-deletions", storeReportDeletion);
+router.get("/checked-reports", getCheckedReports);
+router.post("/validation-results", getValidationResults);
+router.get("/urgent-batch/:batch_id", getReportsByBatchIdFromUrgent);
 
 router.patch("/:record_id/set-report-id", setReportId);
 

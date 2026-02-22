@@ -896,3 +896,230 @@ exports.updateReportCheckStatus = async (req, res) => {
     });
   }
 };
+
+// ── Report Deletions ──────────────────────────────────────────────────────────
+
+exports.getReportDeletions = async (req, res) => {
+  try {
+    const {
+      userId,
+      companyOfficeId,
+      deleteType,
+      page = 1,
+      limit = 10,
+      searchTerm,
+    } = req.query;
+
+    if (!userId) {
+      return res
+        .status(400)
+        .json({ success: false, message: "userId is required" });
+    }
+
+    const query = { user_id: String(userId), deleted: true };
+    if (companyOfficeId) query.company_office_id = String(companyOfficeId);
+    if (deleteType) query.delete_type = deleteType;
+    if (searchTerm)
+      query.report_id = { $regex: String(searchTerm), $options: "i" };
+
+    const skip = Math.max(Number(page) - 1, 0) * Number(limit);
+    const total = await ReportDeletion.countDocuments(query);
+    const docs = await ReportDeletion.find(query)
+      .sort({ updated_at: -1 })
+      .skip(skip)
+      .limit(Number(limit))
+      .lean();
+
+    const items = docs.map((d) => ({
+      report_id: d.report_id,
+      delete_type: d.delete_type,
+      deleted: Boolean(d.deleted),
+      remaining_assets: d.remaining_assets,
+      total_assets: d.total_assets,
+      result: d.result,
+      report_status: d.report_status,
+      updated_at: d.updated_at ? d.updated_at.toISOString() : null,
+      deleted_at: d.deleted_at ? d.deleted_at.toISOString() : null,
+    }));
+
+    return res.json({
+      success: true,
+      items,
+      total,
+      page: Number(page),
+      limit: Number(limit),
+    });
+  } catch (err) {
+    console.error("getReportDeletions:", err);
+    return res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+exports.storeReportDeletion = async (req, res) => {
+  try {
+    const d = req.body;
+    if (!d)
+      return res.status(400).json({ success: false, message: "Body required" });
+
+    const now = new Date();
+    const isDeleted = ["Report - Deleted", "Asset - Deleted"].includes(
+      d.result,
+    );
+
+    const doc = {
+      report_id: String(d.reportId || d.report_id),
+      user_id: String(d.userId || d.user_id),
+      action: d.action,
+      result: d.result,
+      report_status: d.reportStatus || d.report_status,
+      total_assets: d.totalAssets || d.total_assets || 0,
+      deleted: isDeleted,
+      delete_type:
+        d.action === "delete-report"
+          ? "report"
+          : d.action === "delete-assets"
+            ? "assets"
+            : null,
+      updated_at: now,
+      deleted_at: isDeleted ? now : null,
+    };
+    if (d.companyOfficeId || d.company_office_id)
+      doc.company_office_id = String(d.companyOfficeId || d.company_office_id);
+    if (d.error) doc.error = d.error;
+
+    (await ReportDeletion.insertOne)
+      ? ReportDeletion.create(doc)
+      : await ReportDeletion.create(doc);
+
+    return res.json({ success: true, message: "Deletion record stored" });
+  } catch (err) {
+    console.error("storeReportDeletion:", err);
+    return res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+exports.getCheckedReports = async (req, res) => {
+  try {
+    const {
+      userId,
+      companyOfficeId,
+      page = 1,
+      limit = 10,
+      searchTerm,
+    } = req.query;
+
+    if (!userId) {
+      return res
+        .status(400)
+        .json({ success: false, message: "userId is required" });
+    }
+
+    const query = { user_id: String(userId) };
+    if (companyOfficeId) query.company_office_id = String(companyOfficeId);
+    if (searchTerm)
+      query.report_id = { $regex: String(searchTerm), $options: "i" };
+
+    const skip = Math.max(Number(page) - 1, 0) * Number(limit);
+    const total = await ReportDeletion.countDocuments(query);
+    const docs = await ReportDeletion.find(query)
+      .sort({ last_status_check_at: -1 })
+      .skip(skip)
+      .limit(Number(limit))
+      .lean();
+
+    const items = docs.map((d) => ({
+      report_id: d.report_id,
+      report_status: d.report_status,
+      report_status_label: d.report_status_label,
+      assets_exact: d.assets_exact,
+      last_status_check_status: d.last_status_check_status,
+      last_status_check_at: d.last_status_check_at
+        ? d.last_status_check_at.toISOString()
+        : null,
+    }));
+
+    return res.json({
+      success: true,
+      items,
+      total,
+      page: Number(page),
+      limit: Number(limit),
+    });
+  } catch (err) {
+    console.error("getCheckedReports:", err);
+    return res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+exports.getValidationResults = async (req, res) => {
+  try {
+    const { userId } = req.query;
+    const { reportIds } = req.body;
+
+    if (!userId || !Array.isArray(reportIds) || reportIds.length === 0) {
+      return res
+        .status(400)
+        .json({ success: false, message: "userId and reportIds[] required" });
+    }
+
+    const docs = await ReportDeletion.find({
+      user_id: String(userId),
+      report_id: { $in: reportIds.map(String) },
+    })
+      .sort({ updated_at: -1 })
+      .lean();
+
+    const seen = {};
+    for (const d of docs) {
+      if (d.report_id && !seen[d.report_id]) {
+        seen[d.report_id] = {
+          report_id: d.report_id,
+          result: d.result,
+          report_status: d.report_status,
+          total_assets: d.total_assets || 0,
+        };
+      }
+    }
+
+    return res.json({ success: true, items: Object.values(seen) });
+  } catch (err) {
+    console.error("getValidationResults:", err);
+    return res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+exports.getReportsByBatchIdFromUrgent = async (req, res) => {
+  try {
+    const { batch_id } = req.params;
+    if (!batch_id) {
+      return res
+        .status(400)
+        .json({ success: false, message: "batch_id is required" });
+    }
+
+    const docs = await UrgentReport.find({ batch_id }).lean();
+    if (!docs.length) {
+      return res
+        .status(404)
+        .json({
+          success: false,
+          message: `No reports found for batch_id: ${batch_id}`,
+          reports: [],
+        });
+    }
+
+    const report_ids = docs
+      .map((d) => d.report_id || d.reportId || d.reportid)
+      .filter(Boolean)
+      .map(String);
+
+    return res.json({
+      success: true,
+      message: `Fetched ${report_ids.length} report ids for batch ${batch_id}`,
+      reports: report_ids,
+    });
+  } catch (err) {
+    console.error("getReportsByBatchIdFromUrgent:", err);
+    return res.status(500).json({ success: false, message: "Server error" });
+  }
+};
