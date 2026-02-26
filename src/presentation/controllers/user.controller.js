@@ -216,6 +216,44 @@ const moveReportOwnership = async (fromUserId, toUserId, taqeemUser = null) => {
   );
 };
 
+const buildMissingTaqeemUserFilter = () => ({
+  $or: [
+    { taqeem_user: { $exists: false } },
+    { taqeem_user: null },
+    { taqeem_user: "" },
+  ],
+});
+
+const syncReportTaqeemUser = async (
+  userId,
+  taqeemUser,
+  options = {},
+) => {
+  const ownershipFilter = buildReportOwnershipFilter(userId);
+  const normalizedTaqeemUser = normalizeTaqeemUsername(taqeemUser);
+  if (!ownershipFilter || !normalizedTaqeemUser) return;
+
+  const { onlyMissing = false } = options;
+  const query = onlyMissing
+    ? { $and: [ownershipFilter, buildMissingTaqeemUserFilter()] }
+    : ownershipFilter;
+
+  const reportModels = [
+    SubmitReportsQuickly,
+    DuplicateReport,
+    Report,
+    UrgentReport,
+    ElrajhiReport,
+    MultiApproachReport,
+  ];
+
+  await Promise.all(
+    reportModels.map((Model) =>
+      Model.updateMany(query, { $set: { taqeem_user: normalizedTaqeemUser } }),
+    ),
+  );
+};
+
 const hasUserReferences = async (userId) => {
   const ownershipFilter = buildReportOwnershipFilter(userId);
   if (!ownershipFilter) return true;
@@ -508,6 +546,14 @@ const linkTaqeemUsernameToUser = async (user, username, password = "") => {
   }
 
   await user.save();
+  try {
+    await syncReportTaqeemUser(user._id, trimmedUsername);
+  } catch (syncErr) {
+    console.warn(
+      "[taqeem-link] Failed to sync taqeem user on reports:",
+      syncErr?.message || syncErr,
+    );
+  }
   return user;
 };
 
@@ -927,6 +973,25 @@ const handleTaqeemBootstrap = async (req, res) => {
     await user.save();
   }
 
+  try {
+    await syncReportTaqeemUser(user._id, trimmedUsername, { onlyMissing: true });
+  } catch (syncErr) {
+    console.warn(
+      "[taqeem-bootstrap] Failed to sync taqeem user on reports:",
+      syncErr?.message || syncErr,
+    );
+  }
+  if (user.phone) {
+    try {
+      await syncGuestReportPhones(user._id, user.phone);
+    } catch (phoneSyncErr) {
+      console.warn(
+        "[taqeem-bootstrap] Failed to sync phone on reports:",
+        phoneSyncErr?.message || phoneSyncErr,
+      );
+    }
+  }
+
   await ensureFreeSubscription(user);
 
   return issueAuthTokens(res, user, {
@@ -1058,6 +1123,24 @@ exports.syncTaqeemSnapshot = async (req, res) => {
     }
 
     await targetUser.save();
+    try {
+      await syncReportTaqeemUser(targetUser._id, requestedUsername);
+    } catch (syncErr) {
+      console.warn(
+        "[syncTaqeemSnapshot] Failed to sync taqeem user on reports:",
+        syncErr?.message || syncErr,
+      );
+    }
+    if (targetUser.phone) {
+      try {
+        await syncGuestReportPhones(targetUser._id, targetUser.phone);
+      } catch (phoneSyncErr) {
+        console.warn(
+          "[syncTaqeemSnapshot] Failed to sync phone on reports:",
+          phoneSyncErr?.message || phoneSyncErr,
+        );
+      }
+    }
 
     return res.json({
       status: "SYNCED",

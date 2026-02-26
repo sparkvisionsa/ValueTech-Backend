@@ -76,6 +76,24 @@ async function updateReportsByBatchId(batch_id, update) {
   return { totalMatched, totalModified };
 }
 
+function hasTaqeemReportId(report) {
+  return Boolean(String(report?.report_id || "").trim());
+}
+
+function isAssetComplete(asset) {
+  const value = asset?.submitState ?? asset?.submit_state;
+  return value === 1 || value === "1" || value === true;
+}
+
+function computeQuickReportStatus(report) {
+  if (!hasTaqeemReportId(report)) return "new";
+  const assets = Array.isArray(report?.asset_data) ? report.asset_data : [];
+  if (assets.length === 0) return "incomplete";
+  return assets.every((asset) => isAssetComplete(asset))
+    ? "complete"
+    : "incomplete";
+}
+
 exports.getReportsByBatchId = async (req, res) => {
   try {
     const { batch_id } = req.params;
@@ -340,18 +358,23 @@ exports.setReportId = async (req, res) => {
   if (!found) {
     return res.status(404).json({ success: false });
   }
-  let result;
+
+  const nextReportData = {
+    ...(found.doc?.toObject ? found.doc.toObject() : found.doc),
+    report_id,
+  };
+  const setPayload = { report_id };
   if (macro_count) {
-    result = await found.model.updateOne(
-      { _id: found.doc._id },
-      { $set: { report_id: report_id, macro_count: macro_count } },
-    );
-  } else {
-    result = await found.model.updateOne(
-      { _id: found.doc._id },
-      { $set: { report_id: report_id } },
-    );
+    setPayload.macro_count = macro_count;
   }
+  if (found.collection === "SubmitReportsQuickly") {
+    setPayload.report_status = computeQuickReportStatus(nextReportData);
+  }
+
+  const result = await found.model.updateOne(
+    { _id: found.doc._id },
+    { $set: setPayload },
+  );
 
   res.json({
     success: true,

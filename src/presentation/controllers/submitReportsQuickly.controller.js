@@ -9,6 +9,7 @@ const {
   createNotification,
 } = require("../../application/services/notification/notification.service");
 const { extractCompanyOfficeId } = require("../utils/companyOffice");
+const { normalizeTaqeemUsername } = require("../utils/taqeemUser");
 
 // ------------ helpers ------------
 
@@ -165,6 +166,23 @@ function toSafeBasename(value, fallback) {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
   return normalized || fallback || `quick-${Date.now()}`;
+}
+
+function hasTaqeemReportId(report) {
+  return Boolean(String(report?.report_id || "").trim());
+}
+
+function isAssetComplete(asset) {
+  const value = asset?.submitState ?? asset?.submit_state;
+  return value === 1 || value === "1" || value === true;
+}
+
+function computeQuickReportStatus(report) {
+  if (!hasTaqeemReportId(report)) return "new";
+  const assets = Array.isArray(report?.asset_data) ? report.asset_data : [];
+  if (assets.length === 0) return "incomplete";
+  const allComplete = assets.every((asset) => isAssetComplete(asset));
+  return allComplete ? "complete" : "incomplete";
 }
 
 // Extract valuers from excel row (look for valuerId, valuerName, and percentage columns)
@@ -337,15 +355,20 @@ exports.processSubmitReportsQuicklyBatch = async (req, res) => {
 
     let authUser = null;
     try {
-      authUser = await User.findById(user_id).select("phone company").lean();
+      authUser = await User.findById(user_id)
+        .select("phone company taqeem.username")
+        .lean();
     } catch (err) {
       authUser = null;
     }
 
-    const taqeemUser = req.user?.taqeemUser || authUser?.taqeemUser || null;
+    const taqeemUser = normalizeTaqeemUsername(
+      req.user?.taqeemUser || authUser?.taqeem?.username || null,
+    );
     const resolvedPhone = authUser?.phone || req.user?.phone || null;
     const resolvedCompany = authUser?.company || req.user?.company || null;
     const isGuestToken = Boolean(req.user?.guest) && !resolvedPhone;
+    const resolvedCompanyOfficeId = isGuestToken ? null : companyOfficeId;
 
     console.log("=== PDF PATH DEBUGGING ===");
     console.log("1. skipPdfUpload:", skipPdfUpload);
@@ -685,7 +708,7 @@ exports.processSubmitReportsQuicklyBatch = async (req, res) => {
         user_phone: isGuestToken ? null : resolvedPhone,
         taqeem_user: taqeemUser || null,
         company: resolvedCompany || null,
-        company_office_id: companyOfficeId,
+        company_office_id: resolvedCompanyOfficeId,
         batch_id: batchId,
         source_excel_name: file.originalname,
         title: title,
@@ -906,6 +929,7 @@ exports.updateSubmitReportsQuickly = async (req, res) => {
     });
 
     Object.assign(report, updates);
+    report.report_status = computeQuickReportStatus(report);
     await report.save();
 
     return res.json({ success: true, report });
@@ -1004,6 +1028,7 @@ exports.updateSubmitReportsQuicklyAsset = async (req, res) => {
 
     const normalized = asset?.toObject ? asset.toObject() : { ...asset };
     report.asset_data[assetIndex] = { ...normalized, ...updates };
+    report.report_status = computeQuickReportStatus(report);
     await report.save();
 
     return res.json({ success: true, asset: report.asset_data[assetIndex] });
@@ -1044,6 +1069,7 @@ exports.deleteSubmitReportsQuicklyAsset = async (req, res) => {
     }
 
     report.asset_data.splice(assetIndex, 1);
+    report.report_status = computeQuickReportStatus(report);
     await report.save();
 
     return res.json({ success: true });
