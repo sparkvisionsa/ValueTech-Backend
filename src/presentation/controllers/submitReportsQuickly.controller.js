@@ -327,6 +327,14 @@ exports.processSubmitReportsQuicklyBatch = async (req, res) => {
       });
     }
 
+    let pdfPathMap = {};
+
+    try {
+      pdfPathMap = JSON.parse(req.body.pdfPathMap || "{}");
+    } catch {
+      pdfPathMap = {};
+    }
+
     let authUser = null;
     try {
       authUser = await User.findById(user_id).select("phone company").lean();
@@ -379,7 +387,7 @@ exports.processSubmitReportsQuicklyBatch = async (req, res) => {
         unmatchedPdfs.push(file.originalname);
       } else {
         // Get the absolute path from request body (sent from frontend)
-        const absolutePath = req.body[pdfBase];
+        const absolutePath = pdfPathMap[pdfBase];
 
         if (
           absolutePath &&
@@ -412,18 +420,6 @@ exports.processSubmitReportsQuicklyBatch = async (req, res) => {
     // 3) CRITICAL: For ALL Excel files, check req.body for paths
     console.log("\n📋 Checking req.body for PDF paths for all Excel files...");
 
-    // Build a map of normalized req.body keys for lookup
-    const bodyKeysMap = new Map();
-    Object.keys(req.body).forEach((key) => {
-      const normalizedBodyKey = key
-        .toString()
-        .normalize("NFC")
-        .trim()
-        .toLowerCase()
-        .replace(/[\W_]+/g, ""); // Match frontend normalization
-      bodyKeysMap.set(normalizedBodyKey, req.body[key]);
-    });
-
     for (const [baseName, bucket] of excelMap.entries()) {
       if (!bucket.pdfPath) {
         // Normalize the baseName the same way frontend does
@@ -434,7 +430,7 @@ exports.processSubmitReportsQuicklyBatch = async (req, res) => {
           .toLowerCase()
           .replace(/[\W_]+/g, "");
 
-        const pathFromBody = bodyKeysMap.get(normalizedBaseName);
+        const pathFromBody = pdfPathMap[normalizedBaseName];
 
         console.log(
           `  Checking ${baseName} (normalized: ${normalizedBaseName}):`,

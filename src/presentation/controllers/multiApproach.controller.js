@@ -127,7 +127,15 @@ function toSafeBasename(value, fallback) {
     .replace(/^-+|-+$/g, "");
   return normalized || fallback || `manual-${Date.now()}`;
 }
+function fixMojibake(str) {
+  if (typeof str !== "string") return str;
 
+  try {
+    return Buffer.from(str, "binary").toString("utf8");
+  } catch {
+    return str;
+  }
+}
 // Try to read total report value from Report Info row
 function getReportTotalValue(reportRow) {
   // Adjust these keys to match your real Excel headers
@@ -199,14 +207,18 @@ exports.processMultiApproachBatch = async (req, res) => {
     const normalizeKey = (value) =>
       (value || "")
         .toString()
+        .normalize("NFC")
         .trim()
         .toLowerCase()
-        .replace(/[\W_]+/g, "");
+        .replace(/[^\p{L}\p{N}]+/gu, "");
 
     const stripExtension = (filename = "") => filename.replace(/\.[^.]+$/, "");
 
     const excelFiles = req.files.excels;
     const pdfFiles = req.files.pdfs || [];
+    [...excelFiles, ...pdfFiles].forEach((file) => {
+      file.originalname = fixMojibake(file.originalname);
+    });
     const skipPdfUpload =
       req.body.skipPdfUpload === "true" || req.body.skipPdfUpload === true;
 
@@ -240,8 +252,27 @@ exports.processMultiApproachBatch = async (req, res) => {
 
     const companyOfficeId = extractCompanyOfficeId(req);
 
+    console.log("=== RAW req.body ===");
+    console.log(req.body.pdfPathMap);
+    console.log("====================");
+
     // 1) Build maps by basename (without extension)
     const excelMap = new Map(); // basename -> { file, pdfPath: null }
+
+    let pdfPathMap = {};
+
+    try {
+      const rawPdfMap = req.body.pdfPathMap ? req.body.pdfPathMap : "{}";
+
+      const parsed = JSON.parse(rawPdfMap);
+
+      // No fixMojibake on keys OR values - the data is already valid UTF-8
+      pdfPathMap = Object.fromEntries(
+        Object.entries(parsed).map(([k, v]) => [normalizeKey(k), String(v)]),
+      );
+    } catch {
+      pdfPathMap = {};
+    }
 
     excelFiles.forEach((file) => {
       const baseName = normalizeKey(stripExtension(file.originalname));
@@ -291,7 +322,7 @@ exports.processMultiApproachBatch = async (req, res) => {
         return;
       }
 
-      const absolutePath = req.body[pdfBase];
+      const absolutePath = pdfPathMap[pdfBase];
       if (
         absolutePath &&
         absolutePath !== "undefined" &&
@@ -306,12 +337,22 @@ exports.processMultiApproachBatch = async (req, res) => {
           `No absolute path provided for PDF: ${file.originalname}, using uploaded file path: ${bucket.pdfPath}`,
         );
       }
+      console.log("=== PDF PATH MAP DEBUG ===");
+      console.log("pdfPathMap keys:", Object.keys(pdfPathMap));
+      console.log(
+        "pdfPathMap keys (hex):",
+        Object.keys(pdfPathMap).map((k) => Buffer.from(k).toString("hex")),
+      );
+      console.log("pdfBase:", pdfBase);
+      console.log("pdfBase (hex):", Buffer.from(pdfBase).toString("hex"));
+      console.log("match?", pdfPathMap[pdfBase]);
+      console.log("==========================");
     });
 
     // 3) NOW, for any Excel that still doesn't have a pdfPath, check req.body for dummy paths
     for (const [baseName, bucket] of excelMap.entries()) {
       if (!bucket.pdfPath) {
-        const dummyPath = req.body[baseName];
+        const dummyPath = pdfPathMap[baseName];
         if (dummyPath && dummyPath !== "undefined" && dummyPath !== "null") {
           bucket.pdfPath = dummyPath;
           console.log(`Using dummy PDF path for ${baseName}: ${dummyPath}`);
