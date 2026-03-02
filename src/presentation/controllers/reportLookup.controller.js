@@ -71,15 +71,29 @@ function buildSmartOr(query) {
   return clauses;
 }
 
-async function buildOwnerMatch(userIdRaw) {
-  const userIdStr = String(userIdRaw || "").trim();
+async function buildOwnerMatch(req) {
+  const tokenUserId = String(
+    req?.user?.id || req?.user?._id || req?.user?.userId || req?.userId || "",
+  ).trim();
+  const queryUserId = String(req?.query?.userId || "").trim();
+  const userIdStr = tokenUserId || queryUserId;
   if (!userIdStr || !mongoose.Types.ObjectId.isValid(userIdStr)) {
     return null;
   }
 
   const userObjectId = new mongoose.Types.ObjectId(userIdStr);
-  const currentUser = await User.findById(userObjectId).select("taqeem.username").lean();
-  const taqeemUser = String(currentUser?.taqeem?.username || "").trim();
+  const isGuestUser = Boolean(req?.user?.guest);
+  const tokenTaqeemUser = String(
+    req?.user?.taqeemUser || req?.user?.taqeem?.username || "",
+  ).trim();
+  const queryTaqeemUser = String(req?.query?.taqeemUser || "").trim();
+  let taqeemUser = isGuestUser ? "" : tokenTaqeemUser || queryTaqeemUser;
+  if (!taqeemUser && !isGuestUser) {
+    const currentUser = await User.findById(userObjectId)
+      .select("taqeem.username")
+      .lean();
+    taqeemUser = String(currentUser?.taqeem?.username || "").trim();
+  }
 
   const clauses = [
     { user_id: userObjectId },
@@ -88,7 +102,7 @@ async function buildOwnerMatch(userIdRaw) {
     { userId: userIdStr },
   ];
 
-  if (taqeemUser) {
+  if (taqeemUser && !isGuestUser) {
     clauses.push({ taqeem_user: taqeemUser });
   }
 
@@ -139,7 +153,7 @@ async function listSourceDocs({ source, match, fetchLimit }) {
 
 async function searchReports(req, res) {
   try {
-    const ownerMatch = await buildOwnerMatch(req.userId);
+    const ownerMatch = await buildOwnerMatch(req);
     if (!ownerMatch) {
       return res.status(401).json({ status: "failed", error: "Unauthorized" });
     }
@@ -156,7 +170,10 @@ async function searchReports(req, res) {
 
     const sourceFilter = String(req.query.source || "ALL").trim();
     const sources = SOURCES.filter(
-      (source) => sourceFilter === "ALL" || source.key === sourceFilter,
+      (source) =>
+        sourceFilter === "ALL" ||
+        source.key === sourceFilter ||
+        source.label === sourceFilter,
     );
 
     const searchClauses = buildSmartOr(q);
@@ -189,7 +206,7 @@ async function searchReports(req, res) {
 
 async function listMyReports(req, res) {
   try {
-    const ownerMatch = await buildOwnerMatch(req.userId);
+    const ownerMatch = await buildOwnerMatch(req);
     if (!ownerMatch) {
       return res.status(401).json({ status: "failed", error: "Unauthorized" });
     }
