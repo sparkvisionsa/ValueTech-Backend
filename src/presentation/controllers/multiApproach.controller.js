@@ -3,6 +3,7 @@ const path = require("path");
 const fs = require("fs");
 const dummyPdfPath = path.resolve("uploads/static/dummy_placeholder.pdf");
 
+const mongoose = require("mongoose");
 const MultiApproachReport = require("../../infrastructure/models/MultiApproachReport");
 const {
   createNotification,
@@ -1027,6 +1028,44 @@ exports.getMultiApproachReportsByUserId = async (req, res) => {
       query.company_office_id = companyOfficeId;
     }
 
+    const excludeAssets = ["1", "true", "yes"].includes(
+      String(req.query.excludeAssets || "").trim().toLowerCase(),
+    );
+
+    if (excludeAssets) {
+      const [docs, total] = await Promise.all([
+        MultiApproachReport.aggregate([
+          { $match: query },
+          { $sort: { createdAt: -1, _id: -1 } },
+          { $skip: skip },
+          { $limit: limit },
+          {
+            $addFields: {
+              asset_count: {
+                $size: { $ifNull: ["$asset_data", []] },
+              },
+            },
+          },
+          { $project: { asset_data: 0 } },
+          { $addFields: { asset_data: [] } },
+        ]),
+        MultiApproachReport.countDocuments(query),
+      ]);
+      const reports = docs;
+      return res.json({
+        success: true,
+        reports,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages: Math.ceil(total / limit),
+          hasNextPage: page < Math.ceil(total / limit),
+          hasPrevPage: page > 1,
+        },
+      });
+    }
+
     const [reports, total] = await Promise.all([
       MultiApproachReport.find(query)
         .sort({ createdAt: -1, _id: -1 })
@@ -1178,6 +1217,101 @@ exports.deleteMultiApproachReport = async (req, res) => {
   } catch (error) {
     console.error("Error deleting multi-approach report:", error);
     return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+exports.getReportAssetsPaginated = async (req, res) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ success: false, message: "Unauthorized" });
+    }
+
+    const reportId = req.params.id;
+    if (!mongoose.Types.ObjectId.isValid(reportId)) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid report ID." });
+    }
+    const page = Math.max(Number(req.query.page) || 1, 1);
+    const limit = Math.min(Math.max(Number(req.query.limit) || 10, 1), 100);
+    const skip = (page - 1) * limit;
+
+    const pipeline = [
+      { $match: { _id: new mongoose.Types.ObjectId(reportId) } },
+      {
+        $facet: {
+          total: [{ $project: { count: { $size: { $ifNull: ["$asset_data", []] } } } }],
+          pageData: [
+            {
+              $project: {
+                asset_data: {
+                  $slice: ["$asset_data", skip, limit],
+                },
+                user_id: 1,
+                taqeem_user: 1,
+              },
+            },
+          ],
+        },
+      },
+    ];
+
+    const result = await MultiApproachReport.aggregate(pipeline);
+
+    if (!result || result.length === 0) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Report not found." });
+    }
+
+    const pageDoc = result[0].pageData?.[0];
+    const totalDoc = result[0].total?.[0];
+    const total = totalDoc?.count ?? 0;
+
+    if (!pageDoc) {
+      return res.json({
+        success: true,
+        assets: [],
+        pagination: {
+          page,
+          limit,
+          total: 0,
+          totalPages: 0,
+          hasNextPage: false,
+          hasPrevPage: false,
+        },
+      });
+    }
+
+    const canAccess =
+      req.user?.taqeemUser && pageDoc.taqeem_user === req.user.taqeemUser
+        ? true
+        : String(pageDoc.user_id) === String(req.user.id);
+
+    if (!canAccess) {
+      return res.status(403).json({ success: false, message: "Forbidden." });
+    }
+
+    const assets = Array.isArray(pageDoc.asset_data) ? pageDoc.asset_data : [];
+
+    return res.json({
+      success: true,
+      assets,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+        hasNextPage: page < Math.ceil(total / limit),
+        hasPrevPage: page > 1,
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching report assets paginated:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+    });
   }
 };
 

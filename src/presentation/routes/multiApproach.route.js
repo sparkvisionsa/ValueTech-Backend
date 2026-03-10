@@ -9,6 +9,7 @@ const {
   createManualMultiApproachReport,
   listMultiApproachReports,
   getMultiApproachReportsByUserId,
+  getReportAssetsPaginated,
   updateMultiApproachReport,
   deleteMultiApproachReport,
   updateMultiApproachAsset,
@@ -17,6 +18,7 @@ const {
 
 router.get("/", authMiddleware, listMultiApproachReports);
 router.get("/user", authMiddleware, getMultiApproachReportsByUserId);
+router.get("/:id/assets", authMiddleware, getReportAssetsPaginated);
 router.patch("/:id", authMiddleware, upload.single("pdf"), updateMultiApproachReport);
 router.delete("/:id", authMiddleware, deleteMultiApproachReport);
 router.patch("/:id/assets/:index", authMiddleware, updateMultiApproachAsset);
