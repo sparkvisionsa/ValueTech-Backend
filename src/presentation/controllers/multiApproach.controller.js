@@ -1044,6 +1044,29 @@ exports.getMultiApproachReportsByUserId = async (req, res) => {
               asset_count: {
                 $size: { $ifNull: ["$asset_data", []] },
               },
+              complete_assets_count: {
+                $size: {
+                  $filter: {
+                    input: { $ifNull: ["$asset_data", []] },
+                    as: "asset",
+                    cond: {
+                      $eq: [{ $ifNull: ["$$asset.submitState", 0] }, 1],
+                    },
+                  },
+                },
+              },
+            },
+          },
+          {
+            $addFields: {
+              incomplete_assets_count: {
+                $max: [
+                  {
+                    $subtract: ["$asset_count", "$complete_assets_count"],
+                  },
+                  0,
+                ],
+              },
             },
           },
           { $project: { asset_data: 0 } },
@@ -1294,16 +1317,17 @@ exports.getReportAssetsPaginated = async (req, res) => {
 
     const assets = Array.isArray(pageDoc.asset_data) ? pageDoc.asset_data : [];
 
-    return res.json({
-      success: true,
-      assets,
-      pagination: {
-        page,
-        limit,
-        total,
-        totalPages: Math.ceil(total / limit),
-        hasNextPage: page < Math.ceil(total / limit),
-        hasPrevPage: page > 1,
+      return res.json({
+        success: true,
+        assets,
+        pagination: {
+          page,
+          offset: skip,
+          limit,
+          total,
+          totalPages: Math.ceil(total / limit),
+          hasNextPage: page < Math.ceil(total / limit),
+          hasPrevPage: page > 1,
       },
     });
   } catch (error) {
