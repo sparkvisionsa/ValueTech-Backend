@@ -1258,23 +1258,50 @@ exports.getReportAssetsPaginated = async (req, res) => {
     const page = Math.max(Number(req.query.page) || 1, 1);
     const limit = Math.min(Math.max(Number(req.query.limit) || 10, 1), 100);
     const skip = (page - 1) * limit;
+    const statusFilter = String(req.query.status || "all")
+      .trim()
+      .toLowerCase();
+
+    const filteredAssetsExpression =
+      statusFilter === "complete"
+        ? {
+            $filter: {
+              input: { $ifNull: ["$asset_data", []] },
+              as: "asset",
+              cond: {
+                $eq: [{ $ifNull: ["$$asset.submitState", 0] }, 1],
+              },
+            },
+          }
+        : statusFilter === "incomplete"
+          ? {
+              $filter: {
+                input: { $ifNull: ["$asset_data", []] },
+                as: "asset",
+                cond: {
+                  $ne: [{ $ifNull: ["$$asset.submitState", 0] }, 1],
+                },
+              },
+            }
+          : { $ifNull: ["$asset_data", []] };
 
     const pipeline = [
       { $match: { _id: new mongoose.Types.ObjectId(reportId) } },
       {
-        $facet: {
-          total: [{ $project: { count: { $size: { $ifNull: ["$asset_data", []] } } } }],
-          pageData: [
-            {
-              $project: {
-                asset_data: {
-                  $slice: ["$asset_data", skip, limit],
-                },
-                user_id: 1,
-                taqeem_user: 1,
-              },
-            },
-          ],
+        $project: {
+          user_id: 1,
+          taqeem_user: 1,
+          filtered_assets: filteredAssetsExpression,
+        },
+      },
+      {
+        $project: {
+          user_id: 1,
+          taqeem_user: 1,
+          total: { $size: "$filtered_assets" },
+          asset_data: {
+            $slice: ["$filtered_assets", skip, limit],
+          },
         },
       },
     ];
@@ -1283,13 +1310,12 @@ exports.getReportAssetsPaginated = async (req, res) => {
 
     if (!result || result.length === 0) {
       return res
-        .status(404)
-        .json({ success: false, message: "Report not found." });
+          .status(404)
+          .json({ success: false, message: "Report not found." });
     }
 
-    const pageDoc = result[0].pageData?.[0];
-    const totalDoc = result[0].total?.[0];
-    const total = totalDoc?.count ?? 0;
+    const pageDoc = result[0];
+    const total = pageDoc?.total ?? 0;
 
     if (!pageDoc) {
       return res.json({
@@ -1302,6 +1328,7 @@ exports.getReportAssetsPaginated = async (req, res) => {
           totalPages: 0,
           hasNextPage: false,
           hasPrevPage: false,
+          status: statusFilter,
         },
       });
     }
@@ -1328,8 +1355,9 @@ exports.getReportAssetsPaginated = async (req, res) => {
           totalPages: Math.ceil(total / limit),
           hasNextPage: page < Math.ceil(total / limit),
           hasPrevPage: page > 1,
-      },
-    });
+          status: statusFilter,
+        },
+      });
   } catch (error) {
     console.error("Error fetching report assets paginated:", error);
     return res.status(500).json({
