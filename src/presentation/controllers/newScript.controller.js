@@ -34,9 +34,27 @@ const ALL_COLLECTIONS = {
   Report,
 };
 
+function buildReportIdQuery(report_id) {
+  const normalized = String(report_id || "").trim();
+  if (!normalized) {
+    return { report_id: normalized };
+  }
+
+  const variants = [normalized];
+  if (/^\d+$/.test(normalized)) {
+    variants.push(Number(normalized));
+  }
+
+  const uniqueVariants = [...new Set(variants)];
+  return uniqueVariants.length === 1
+    ? { report_id: uniqueVariants[0] }
+    : { report_id: { $in: uniqueVariants } };
+}
+
 async function findReportAcrossCollections(report_id) {
+  const query = buildReportIdQuery(report_id);
   for (const [collection, Model] of Object.entries(ALL_COLLECTIONS)) {
-    const doc = await Model.findOne({ report_id });
+    const doc = await Model.findOne(query);
     if (doc) {
       return { doc, model: Model, collection };
     }
@@ -141,8 +159,9 @@ exports.findReportByReportId = async (req, res) => {
       });
     }
 
+    const query = buildReportIdQuery(report_id);
     for (const [name, Model] of Object.entries(ALL_COLLECTIONS)) {
-      const doc = await Model.findOne({ report_id }).lean();
+      const doc = await Model.findOne(query).lean();
       if (doc) {
         return res.json({
           success: true,
