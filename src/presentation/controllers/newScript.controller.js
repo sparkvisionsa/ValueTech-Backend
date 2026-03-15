@@ -260,18 +260,56 @@ exports.updateMultipleMacros = async (req, res) => {
       return res.status(404).json({ success: false });
     }
 
-    let totalModified = 0;
+    const operations = (Array.isArray(macro_updates) ? macro_updates : [])
+      .map(({ macro_id, submitState }) => {
+        const normalizedMacroId = String(macro_id ?? "").trim();
+        if (!normalizedMacroId) return null;
 
-    for (const { macro_id, submitState } of macro_updates) {
-      const result = await found.model.updateOne(
-        { _id: found.doc._id, "asset_data.id": String(macro_id) },
-        { $set: { "asset_data.$.submitState": submitState } },
-      );
-      totalModified += result.modifiedCount;
+        const variants = [normalizedMacroId];
+        if (/^\d+$/.test(normalizedMacroId)) {
+          variants.push(Number(normalizedMacroId));
+        }
+
+        return {
+          updateOne: {
+            filter: { _id: found.doc._id },
+            update: {
+              $set: {
+                "asset_data.$[asset].submitState": submitState,
+                updatedAt: new Date(),
+              },
+            },
+            arrayFilters: [
+              {
+                $or: [
+                  { "asset.id": { $in: variants } },
+                  { "asset.macro_id": { $in: variants } },
+                  { "asset.macroId": { $in: variants } },
+                ],
+              },
+            ],
+          },
+        };
+      })
+      .filter(Boolean);
+
+    if (!operations.length) {
+      return res.json({
+        success: true,
+        matched: 0,
+        modified: 0,
+      });
     }
+
+    const result = await found.model.bulkWrite(operations, { ordered: false });
+    const totalModified =
+      result.modifiedCount ?? result.result?.nModified ?? 0;
+    const totalMatched =
+      result.matchedCount ?? result.result?.nMatched ?? 0;
 
     res.json({
       success: true,
+      matched: totalMatched,
       modified: totalModified,
     });
   } catch (err) {

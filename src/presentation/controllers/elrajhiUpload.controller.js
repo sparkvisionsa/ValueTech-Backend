@@ -333,11 +333,11 @@ function buildValuersForAsset(assetRow, valuerCols) {
 //
 // multipart/form-data body keys containing Arabic arrive as mojibake:
 // their UTF-8 bytes were interpreted as latin1 by the HTTP parser.
-// e.g. "ر ق ط 6835" arrives as "Ø± Ù\x82 Ø· 6835"
+// e.g. "ر ق ط 6835" can arrive as mojibake when UTF-8 bytes are decoded as latin1
 //
 // Strategy: build a Map whose keys are ALL of:
 //   1. the raw key as-received (handles plain ASCII like "test1")
-//   2. fixMojibake(rawKey)  – the correctly decoded Arabic string
+//   2. fixMojibake(rawKey) - the correctly decoded Arabic string
 //   3. normalizeKey() variants of both (NFC + collapse spaces)
 //   4. no-spaces variants of both
 //
