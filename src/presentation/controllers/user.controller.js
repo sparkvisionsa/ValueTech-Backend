@@ -38,6 +38,7 @@ const {
 } = require("../utils/taqeemUser");
 
 const buildUserPayload = (user) => ({
+  id: user.id,
   _id: user._id,
   phone: user.phone,
   phones: Array.isArray(user.phones) ? user.phones : [],
@@ -224,11 +225,7 @@ const buildMissingTaqeemUserFilter = () => ({
   ],
 });
 
-const syncReportTaqeemUser = async (
-  userId,
-  taqeemUser,
-  options = {},
-) => {
+const syncReportTaqeemUser = async (userId, taqeemUser, options = {}) => {
   const ownershipFilter = buildReportOwnershipFilter(userId);
   const normalizedTaqeemUser = normalizeTaqeemUsername(taqeemUser);
   if (!ownershipFilter || !normalizedTaqeemUser) return;
@@ -810,6 +807,7 @@ exports.login = async (req, res) => {
       message: "Login successful.",
       token: accessToken,
       refreshToken,
+      userId: user._id,
       user: buildUserPayload(user),
     });
   } catch (err) {
@@ -974,7 +972,9 @@ const handleTaqeemBootstrap = async (req, res) => {
   }
 
   try {
-    await syncReportTaqeemUser(user._id, trimmedUsername, { onlyMissing: true });
+    await syncReportTaqeemUser(user._id, trimmedUsername, {
+      onlyMissing: true,
+    });
   } catch (syncErr) {
     console.warn(
       "[taqeem-bootstrap] Failed to sync taqeem user on reports:",
