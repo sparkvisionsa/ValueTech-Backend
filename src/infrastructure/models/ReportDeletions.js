@@ -13,26 +13,16 @@ const ReportDeletionSchema = new mongoose.Schema(
       index: true,
     },
 
-    report_status: {
-      type: String,
-    },
+    report_status: String,
 
     assets_exact: {
       type: Number,
       default: 0,
     },
 
-    last_status_check_status: {
-      type: String,
-    },
-
-    last_status_check_source: {
-      type: String,
-    },
-
-    report_status_label: {
-      type: String,
-    },
+    last_status_check_status: String,
+    last_status_check_source: String,
+    report_status_label: String,
 
     deleted: {
       type: Boolean,
@@ -43,9 +33,8 @@ const ReportDeletionSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
-    company_office_id: {
-      type: String,
-    },
+
+    company_office_id: String,
 
     total_assets: {
       type: Number,
@@ -53,16 +42,18 @@ const ReportDeletionSchema = new mongoose.Schema(
     },
 
     user_id: {
-      type: mongoose.Schema.Types.ObjectId, // or String if needed
+      type: mongoose.Schema.Types.ObjectId,
       required: true,
     },
 
     deleted_at: Date,
-    updated_at: Date,
   },
   {
-    collection: "report_deletions", // <-- EXACT NAME FROM ATLAS
-    timestamps: false,
+    collection: "report_deletions",
+    timestamps: {
+      createdAt: "created_at",
+      updatedAt: "updated_at",
+    },
   },
 );
 
