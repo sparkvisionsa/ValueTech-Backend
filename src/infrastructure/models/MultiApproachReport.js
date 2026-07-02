@@ -147,6 +147,7 @@ const MultiApproachReportSchema = new mongoose.Schema(
     },
 
     report_id: { type: String, default: "" },
+    report_status: { type: String, default: "" }, // incomplete | complete | SENT | CONFIRMED | INCOMPLETE | COMPLETE
     checked: { type: Boolean, default: false },
     startSubmitTime: { type: Date },
     endSubmitTime: { type: Date },

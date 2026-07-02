@@ -101,12 +101,48 @@ function getPlaceholderPdfPath() {
 }
 
 const buildOwnerQuery = (userContext = {}) => {
-  const userId = userContext.id || userContext._id || null;
-  const taqeemUser = userContext.taqeemUser || null;
+  const userId =
+    userContext.id ||
+    userContext._id ||
+    userContext.userId ||
+    userContext.user_id ||
+    null;
+  const taqeemUser = safeString(
+    userContext.taqeemUser || userContext.taqeem?.username,
+  ).trim();
+  const userPhone = safeString(
+    userContext.phone ||
+      userContext.phoneNumber ||
+      userContext.mobile ||
+      userContext.username,
+  ).trim();
   const clauses = [];
+  const seen = new Set();
 
-  if (userId) clauses.push({ user_id: userId });
-  if (taqeemUser) clauses.push({ taqeem_user: taqeemUser });
+  const pushClause = (field, value, signature = `${field}:${String(value)}`) => {
+    if (value === undefined || value === null || value === "") return;
+    if (seen.has(signature)) return;
+    seen.add(signature);
+    clauses.push({ [field]: value });
+  };
+
+  if (userId) {
+    const userIdStr = safeString(userId).trim();
+    if (userIdStr) {
+      // Support batches saved with either a string user_id or an ObjectId.
+      pushClause("user_id", userIdStr, `user_id:string:${userIdStr}`);
+      if (mongoose.Types.ObjectId.isValid(userIdStr)) {
+        pushClause(
+          "user_id",
+          new mongoose.Types.ObjectId(userIdStr),
+          `user_id:objectid:${userIdStr}`,
+        );
+      }
+    }
+  }
+
+  if (taqeemUser) pushClause("taqeem_user", taqeemUser);
+  if (userPhone) pushClause("user_phone", userPhone);
 
   if (!clauses.length) return {};
   return clauses.length === 1 ? clauses[0] : { $or: clauses };
@@ -297,11 +333,11 @@ function buildValuersForAsset(assetRow, valuerCols) {
 //
 // multipart/form-data body keys containing Arabic arrive as mojibake:
 // their UTF-8 bytes were interpreted as latin1 by the HTTP parser.
-// e.g. "ر ق ط 6835" arrives as "Ø± Ù\x82 Ø· 6835"
+// e.g. "ر ق ط 6835" can arrive as mojibake when UTF-8 bytes are decoded as latin1
 //
 // Strategy: build a Map whose keys are ALL of:
 //   1. the raw key as-received (handles plain ASCII like "test1")
-//   2. fixMojibake(rawKey)  – the correctly decoded Arabic string
+//   2. fixMojibake(rawKey) - the correctly decoded Arabic string
 //   3. normalizeKey() variants of both (NFC + collapse spaces)
 //   4. no-spaces variants of both
 //
