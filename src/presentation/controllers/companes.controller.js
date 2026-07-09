@@ -166,6 +166,7 @@ exports.listMyCompanies = async (req, res) => {
       ? user.taqeem.companies
       : [];
 
+    console.log("comapnies", taqeemCompanies);
     const filteredTaqeem = normalizedType
       ? taqeemCompanies.filter(
           (item) => normalizeType(item.type) === normalizedType,

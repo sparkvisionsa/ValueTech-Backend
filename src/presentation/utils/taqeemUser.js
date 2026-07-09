@@ -1,7 +1,7 @@
-﻿const { normalizeOfficeId } = require('./companyOffice');
+﻿const { normalizeOfficeId } = require("./companyOffice");
 
 const safeString = (value) => {
-  if (value === undefined || value === null) return '';
+  if (value === undefined || value === null) return "";
   return String(value).trim();
 };
 
@@ -39,15 +39,16 @@ const normalizeValuers = (input = []) => {
   return valuers;
 };
 
-const normalizeCompanyType = (value = '') => {
+const normalizeCompanyType = (value = "") => {
   const text = safeString(value).toLowerCase();
-  if (text.includes('real')) return 'real-estate';
-  if (text.includes('estate')) return 'real-estate';
-  return 'equipment';
+  if (text.includes("real")) return "real-estate";
+  if (text.includes("estate")) return "real-estate";
+  return "equipment";
 };
 
-const INTERNAL_VALUERS_FLAG = '__valuersProvided';
-const hasOwn = (obj, key) => Object.prototype.hasOwnProperty.call(obj || {}, key);
+const INTERNAL_VALUERS_FLAG = "__valuersProvided";
+const hasOwn = (obj, key) =>
+  Object.prototype.hasOwnProperty.call(obj || {}, key);
 
 const stripInternalCompanyFields = (company = {}) => {
   const cleaned = { ...company };
@@ -57,14 +58,17 @@ const stripInternalCompanyFields = (company = {}) => {
 };
 
 const getCompanyKey = (company = {}) => {
-  const officeId = normalizeOfficeId(company.officeId ?? company.office_id ?? company.id);
-  if (officeId) return `office:${officeId}`;
+  const type = normalizeCompanyType(company.type);
+  const officeId = normalizeOfficeId(
+    company.officeId ?? company.office_id ?? company.id,
+  );
+  if (officeId) return `office:${type}:${officeId}`;
 
   const url = safeString(company.url || company.link);
-  if (url) return `url:${url.toLowerCase()}`;
+  if (url) return `url:${type}:${url.toLowerCase()}`;
 
   const name = safeString(company.name || company.companyName);
-  if (name) return `name:${name.toLowerCase()}`;
+  if (name) return `name:${type}:${name.toLowerCase()}`;
 
   return null;
 };
@@ -78,12 +82,12 @@ const normalizeCompany = (company = {}) => {
   const url = safeString(company.url || company.link);
   const hasValuersProvided = hasOwn(company, INTERNAL_VALUERS_FLAG)
     ? Boolean(company[INTERNAL_VALUERS_FLAG])
-    : hasOwn(company, 'valuers');
+    : hasOwn(company, "valuers");
 
   return {
     officeId,
     sectorId: sectorId || null,
-    name: name || 'Unknown company',
+    name: name || "Unknown company",
     url: url || null,
     type: normalizeCompanyType(company.type),
     valuers: hasValuersProvided ? normalizeValuers(company.valuers) : [],
@@ -139,31 +143,42 @@ const normalizeCompanies = (companies = []) =>
   normalizeCompaniesInternal(companies).map(stripInternalCompanyFields);
 
 const normalizeProfile = (profile = {}) => {
-  if (!profile || typeof profile !== 'object') return null;
+  if (!profile || typeof profile !== "object") return null;
 
-  const fields = profile.fields && typeof profile.fields === 'object'
-    ? Object.fromEntries(
-      Object.entries(profile.fields)
-        .map(([k, v]) => [safeString(k), safeString(v)])
-        .filter(([k, v]) => k && v),
-    )
-    : {};
+  const fields =
+    profile.fields && typeof profile.fields === "object"
+      ? Object.fromEntries(
+          Object.entries(profile.fields)
+            .map(([k, v]) => [safeString(k), safeString(v)])
+            .filter(([k, v]) => k && v),
+        )
+      : {};
 
   const normalized = {
     taqeemUser: normalizeTaqeemUsername(
-      profile.taqeemUser ?? profile.username ?? profile.user_id ?? profile.userId,
+      profile.taqeemUser ??
+        profile.username ??
+        profile.user_id ??
+        profile.userId,
     ),
-    fullName: safeString(profile.fullName ?? profile.name ?? profile.full_name) || null,
+    fullName:
+      safeString(profile.fullName ?? profile.name ?? profile.full_name) || null,
     email: safeString(profile.email) || null,
-    phone: safeString(profile.phone ?? profile.mobile ?? profile.phoneNumber) || null,
-    nationalId: safeString(
-      profile.nationalId ?? profile.national_id ?? profile.identityNumber,
-    ) || null,
-    licenseNumber: safeString(
-      profile.licenseNumber ?? profile.membershipNumber ?? profile.valuerLicense,
-    ) || null,
+    phone:
+      safeString(profile.phone ?? profile.mobile ?? profile.phoneNumber) ||
+      null,
+    nationalId:
+      safeString(
+        profile.nationalId ?? profile.national_id ?? profile.identityNumber,
+      ) || null,
+    licenseNumber:
+      safeString(
+        profile.licenseNumber ??
+          profile.membershipNumber ??
+          profile.valuerLicense,
+      ) || null,
     fields,
-    raw: profile.raw && typeof profile.raw === 'object' ? profile.raw : null,
+    raw: profile.raw && typeof profile.raw === "object" ? profile.raw : null,
   };
 
   return normalized;
@@ -208,7 +223,7 @@ const mergeCompanyRecord = (existing = {}, incoming = {}) => {
   const merged = {
     officeId: normalizeOfficeId(existing.officeId ?? incoming.officeId),
     sectorId: safeString(existing.sectorId || incoming.sectorId) || null,
-    name: safeString(existing.name || incoming.name) || 'Unknown company',
+    name: safeString(existing.name || incoming.name) || "Unknown company",
     url: safeString(existing.url || incoming.url) || null,
     type: normalizeCompanyType(existing.type || incoming.type),
     valuers: mergedValuers,
@@ -246,11 +261,40 @@ const resolveDefaultCompanyOfficeId = (officeId, companies = []) => {
   if (!normalized) return null;
 
   const exists = (companies || []).some((company) => {
-    const companyOfficeId = normalizeOfficeId(company?.officeId ?? company?.office_id);
+    const companyOfficeId = normalizeOfficeId(
+      company?.officeId ?? company?.office_id,
+    );
     return companyOfficeId === normalized;
   });
 
   return exists ? normalized : null;
+};
+
+const withUserCompaniesUpdate = async (
+  User,
+  userId,
+  mutate,
+  maxRetries = 4,
+) => {
+  for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+    const user = await User.findById(userId);
+    if (!user) return null;
+
+    await mutate(user);
+
+    try {
+      await user.save();
+      return user;
+    } catch (err) {
+      const isVersionConflict =
+        err?.name === "VersionError" || err?.name === "ParallelSaveError";
+      if (!isVersionConflict || attempt === maxRetries) {
+        throw err;
+      }
+      // Someone else saved concurrently — re-read and retry the merge.
+    }
+  }
+  return null;
 };
 
 module.exports = {
@@ -266,4 +310,5 @@ module.exports = {
   mergeCompanies,
   resolveDefaultCompanyOfficeId,
   getCompanyKey,
+  withUserCompaniesUpdate,
 };
