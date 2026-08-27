@@ -7,52 +7,53 @@ const City = require("../../infrastructure/models/city.model");
 /**
  * GET /api/transactions
  */
-async function listTransactions(req, res) {
-  try {
-    const {
-      companyId,
-      inspectorId,
-      isCompleted,
-      isOpened,
-      page = 1,
-      limit = 20,
-    } = req.query;
+ async function listTransactions(req, res) {
+   try {
+     const {
+       companyId,
+       inspectorId,
+       userId,
+       isCompleted,
+       isOpened,
+       page = 1,
+       limit = 20,
+     } = req.query;
 
-    const filter = {};
+     const filter = {};
 
-    if (companyId) filter.companyId = String(companyId).trim();
-    if (inspectorId) filter.assignedInspectorIds = String(inspectorId).trim();
-    if (isCompleted === "true") filter.isCompleted = true;
-    if (isCompleted === "false") filter.isCompleted = false;
-    if (isOpened === "true") filter.isOpened = true;
-    if (isOpened === "false") filter.isOpened = false;
+     if (companyId) filter.companyId = String(companyId).trim();
+     if (inspectorId) filter.assignedInspectorIds = String(inspectorId).trim();
+     if (userId) filter.createdByUserId = String(userId).trim();
+     if (isCompleted === "true") filter.isCompleted = true;
+     if (isCompleted === "false") filter.isCompleted = false;
+     if (isOpened === "true") filter.isOpened = true;
+     if (isOpened === "false") filter.isOpened = false;
 
-    const pageNum = Math.max(1, Number(page) || 1);
-    const limitNum = Math.min(100, Math.max(1, Number(limit) || 20));
-    const skip = (pageNum - 1) * limitNum;
+     const pageNum = Math.max(1, Number(page) || 1);
+     const limitNum = Math.min(100, Math.max(1, Number(limit) || 20));
+     const skip = (pageNum - 1) * limitNum;
 
-    const [items, total] = await Promise.all([
-      Transaction.find(filter)
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(limitNum)
-        .lean(),
-      Transaction.countDocuments(filter),
-    ]);
+     const [items, total] = await Promise.all([
+       Transaction.find(filter)
+         .sort({ createdAt: -1 })
+         .skip(skip)
+         .limit(limitNum)
+         .lean(),
+       Transaction.countDocuments(filter),
+     ]);
 
-    return res.json({
-      success: true,
-      page: pageNum,
-      limit: limitNum,
-      total,
-      items: items.map(serializeTransaction),
-    });
-  } catch (err) {
-    console.error("listTransactions error:", err);
-    return res.status(500).json({ success: false, message: "Server error" });
-  }
-}
-
+     return res.json({
+       success: true,
+       page: pageNum,
+       limit: limitNum,
+       total,
+       items: items.map(serializeTransaction),
+     });
+   } catch (err) {
+     console.error("listTransactions error:", err);
+     return res.status(500).json({ success: false, message: "Server error" });
+   }
+ }
 /**
  * GET /api/transactions/:id
  * Used by RealEstateFiller.fetch_record_by_id — returns the record

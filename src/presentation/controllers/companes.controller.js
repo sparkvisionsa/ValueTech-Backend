@@ -1,12 +1,6 @@
-﻿const User = require("../../infrastructure/models/user");
-const Companes = require("../../infrastructure/models/companes");
+﻿const Companes = require("../../infrastructure/models/companes");
 const { normalizeOfficeId } = require("../utils/companyOffice");
-const {
-  normalizeCompanies,
-  mergeCompanies,
-  normalizeTaqeemUsername,
-  resolveDefaultCompanyOfficeId,
-} = require("../utils/taqeemUser");
+const { normalizeCompanies } = require("../utils/taqeemUser");
 
 const normalizeType = (value = "") => {
   const text = String(value || "").toLowerCase();
@@ -14,42 +8,33 @@ const normalizeType = (value = "") => {
   return "equipment";
 };
 
+// Spark Vision auth is cookie-based (no JWT), so there is no `req.user` set
+// by any middleware anymore. The renderer explicitly sends the logged-in
+// Spark Vision user's id in the body/query instead.
 const resolveUserId = (req = {}) => {
-  return (
-    req.user?.id ||
-    req.user?._id ||
-    req.body?.userId ||
-    req.query?.userId ||
-    null
-  );
+  return req.body?.userId || req.query?.userId || null;
 };
 
-const ensureTaqeemState = (user) => {
-  if (!user.taqeem || typeof user.taqeem !== "object") {
-    user.taqeem = {
-      username: "",
-      companies: [],
-    };
+// Upserts each incoming company as its own Companes document, keyed by the
+// Spark Vision userId. `user` is stored as a bare ObjectId reference —
+// Mongoose does not validate that a User document with that id actually
+// exists (that only happens on `.populate()`), so this works even though
+// there is no local User collection under Spark Vision auth.
+const upsertCompanies = async (userId, companies = []) => {
+  if (!userId || !Array.isArray(companies) || companies.length === 0) {
+    return [];
   }
 
-  if (!Array.isArray(user.taqeem.companies)) {
-    user.taqeem.companies = [];
-  }
-};
-
-const upsertLegacyCompanes = async (user, companies = []) => {
-  if (!user?._id || !Array.isArray(companies) || companies.length === 0) return;
-
-  await Promise.all(
+  const results = await Promise.all(
     companies.map((company) => {
       const officeId = normalizeOfficeId(
         company.officeId ?? company.office_id ?? null,
       );
+      const type = normalizeType(company.type);
       const payload = {
         name: company.name || "Unknown company",
-        type: normalizeType(company.type),
-        phone: user.phone || null,
-        user: user._id,
+        type,
+        user: userId,
         url: company.url || "",
         sectorId: company.sectorId || null,
         valuers: Array.isArray(company.valuers) ? company.valuers : [],
@@ -60,8 +45,8 @@ const upsertLegacyCompanes = async (user, companies = []) => {
       }
 
       const filter = officeId
-        ? { user: user._id, type: payload.type, officeId }
-        : { user: user._id, type: payload.type, name: payload.name };
+        ? { user: userId, type, officeId }
+        : { user: userId, type, name: payload.name };
 
       return Companes.findOneAndUpdate(
         filter,
@@ -70,6 +55,8 @@ const upsertLegacyCompanes = async (user, companies = []) => {
       ).lean();
     }),
   );
+
+  return results;
 };
 
 exports.syncCompanies = async (req, res) => {
@@ -86,61 +73,33 @@ exports.syncCompanies = async (req, res) => {
       return res.status(400).json({ message: "No companies provided" });
     }
 
-    const user = await User.findById(userId);
-    if (!user) {
-      return res.status(404).json({ message: "User not found" });
-    }
+    const saved = await upsertCompanies(userId, incomingCompanies);
 
-    ensureTaqeemState(user);
-
-    const taqeemUser = normalizeTaqeemUsername(
-      req.body?.taqeemUser || req.body?.username || user?.taqeem?.username,
-    );
-
-    if (taqeemUser) {
-      user.taqeem.username = taqeemUser;
-    }
-
-    user.taqeem.companies = mergeCompanies(
-      user.taqeem.companies || [],
-      incomingCompanies,
-    );
-
+    // defaultCompanyOfficeId used to live on the (now-gone) User document.
+    // If the caller wants a default set, honor it by echoing back whichever
+    // requested office actually got saved; otherwise fall back to the first
+    // saved company with an officeId. This is stateless — Spark Vision has
+    // no field to persist this preference in server-side, so the renderer
+    // is responsible for remembering it (e.g. via its own local storage).
     const requestedDefaultOfficeId = normalizeOfficeId(
       req.body?.defaultCompanyOfficeId ||
         req.body?.selectedCompanyOfficeId ||
         req.body?.companyOfficeId ||
         null,
     );
-
-    const defaultOfficeId = resolveDefaultCompanyOfficeId(
-      requestedDefaultOfficeId,
-      user.taqeem.companies,
-    );
-
-    if (defaultOfficeId) {
-      user.taqeem.defaultCompanyOfficeId = defaultOfficeId;
-      if (!user.taqeem.firstCompanySelectedAt) {
-        user.taqeem.firstCompanySelectedAt = new Date();
-      }
-    }
-
-    user.taqeem.lastSyncedAt = new Date();
-    await user.save();
-
-    await upsertLegacyCompanes(user, incomingCompanies).catch((err) => {
-      console.warn(
-        "[companes.sync] Failed to sync legacy companes collection:",
-        err?.message || err,
-      );
-    });
+    const matchedDefault = requestedDefaultOfficeId
+      ? saved.find((c) => c.officeId === requestedDefaultOfficeId)
+      : null;
+    const defaultCompanyOfficeId =
+      matchedDefault?.officeId ||
+      saved.find((c) => c.officeId)?.officeId ||
+      null;
 
     return res.status(200).json({
       status: "SUCCESS",
-      data: user.taqeem.companies,
+      data: saved,
       meta: {
-        defaultCompanyOfficeId: user.taqeem.defaultCompanyOfficeId || null,
-        taqeemUser: user.taqeem.username || null,
+        defaultCompanyOfficeId,
       },
     });
   } catch (err) {
@@ -161,43 +120,20 @@ exports.listMyCompanies = async (req, res) => {
     const { type } = req.query;
     const normalizedType = type ? normalizeType(type) : null;
 
-    const user = await User.findById(userId).lean();
-    const taqeemCompanies = Array.isArray(user?.taqeem?.companies)
-      ? user.taqeem.companies
-      : [];
-
-    console.log("comapnies", taqeemCompanies);
-    const filteredTaqeem = normalizedType
-      ? taqeemCompanies.filter(
-          (item) => normalizeType(item.type) === normalizedType,
-        )
-      : taqeemCompanies;
-
-    const legacyFilter = { user: userId };
+    const filter = { user: userId };
     if (normalizedType) {
-      legacyFilter.type = normalizedType;
+      filter.type = normalizedType;
     }
-    const legacyItems = await Companes.find(legacyFilter)
-      .sort({ createdAt: -1 })
-      .lean();
 
-    // Merge: keep taqeem entries, add any legacy-only companies (e.g. ones
-    // inserted straight into the legacy collection via a migration script)
-    // that aren't already represented in taqeem.companies.
-    const keyOf = (c) =>
-      String(c.officeId || c.office_id || c.url || c.name || "");
-    const seen = new Set(filteredTaqeem.map(keyOf));
-    const legacyOnly = legacyItems.filter((c) => {
-      const key = keyOf(c);
-      return key && !seen.has(key);
-    });
+    const items = await Companes.find(filter).sort({ createdAt: -1 }).lean();
+
+    const defaultCompanyOfficeId = items.find((c) => c.officeId)?.officeId || null;
 
     return res.status(200).json({
       status: "SUCCESS",
-      data: [...filteredTaqeem, ...legacyOnly],
+      data: items,
       meta: {
-        defaultCompanyOfficeId: user?.taqeem?.defaultCompanyOfficeId || null,
-        taqeemUser: user?.taqeem?.username || null,
+        defaultCompanyOfficeId,
       },
     });
   } catch (err) {
