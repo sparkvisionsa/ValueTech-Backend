@@ -1,5 +1,6 @@
 const mongoose = require("mongoose");
 const Transaction = require("../../infrastructure/models/transaction.model");
+const User = require("../../infrastructure/models/user.model")
 const Client = require("../../infrastructure/models/client.model");
 const Region = require("../../infrastructure/models/region.model");
 const City = require("../../infrastructure/models/city.model");
@@ -7,57 +8,91 @@ const City = require("../../infrastructure/models/city.model");
 /**
  * GET /api/transactions
  */
- async function listTransactions(req, res) {
-   try {
-     const {
-       companyId,
-       inspectorId,
-       userId,
-       isCompleted,
-       isOpened,
-       page = 1,
-       limit = 20,
-     } = req.query;
 
-     const filter = {};
+async function resolveCompanyIdsForUser(userId) {
+  if (!mongoose.Types.ObjectId.isValid(userId)) return [];
+  const user = await User.findById(userId).select({ company: 1 }).lean();
+  // company is an ObjectId on User, but Transaction.companyId is a String,
+  // so convert before filtering.
+  return user?.company ? [String(user.company)] : [];
+}
 
-     if (companyId) filter.companyId = String(companyId).trim();
-     if (inspectorId) filter.assignedInspectorIds = String(inspectorId).trim();
-     if (userId) filter.createdByUserId = String(userId).trim();
-     if (isCompleted === "true") filter.isCompleted = true;
-     if (isCompleted === "false") filter.isCompleted = false;
-     if (isOpened === "true") filter.isOpened = true;
-     if (isOpened === "false") filter.isOpened = false;
+/**
+ * GET /api/transactions
+ *
+ * Query params:
+ *   memberOfUserId - resolves the user's company and lists that company's transactions
+ *   companyId      - filter by an explicit company id (ignored if memberOfUserId is set)
+ *   inspectorId, userId, isCompleted, isOpened, page, limit
+ */
+async function listTransactions(req, res) {
+  try {
+    const {
+      companyId,
+      inspectorId,
+      userId,
+      memberOfUserId,
+      isCompleted,
+      isOpened,
+      page = 1,
+      limit = 20,
+    } = req.query;
 
-     const pageNum = Math.max(1, Number(page) || 1);
-     const limitNum = Math.min(100, Math.max(1, Number(limit) || 20));
-     const skip = (pageNum - 1) * limitNum;
+    const pageNum = Math.max(1, Number(page) || 1);
+    const limitNum = Math.min(100, Math.max(1, Number(limit) || 20));
+    const skip = (pageNum - 1) * limitNum;
 
-     const [items, total] = await Promise.all([
-       Transaction.find(filter)
-         .sort({ createdAt: -1 })
-         .skip(skip)
-         .limit(limitNum)
-         .lean(),
-       Transaction.countDocuments(filter),
-     ]);
+    const filter = {};
 
-     return res.json({
-       success: true,
-       page: pageNum,
-       limit: limitNum,
-       total,
-       items: items.map(serializeTransaction),
-     });
-   } catch (err) {
-     console.error("listTransactions error:", err);
-     return res.status(500).json({ success: false, message: "Server error" });
-   }
- }
+    if (memberOfUserId) {
+      const companyIds = await resolveCompanyIdsForUser(
+        String(memberOfUserId).trim(),
+      );
+      if (companyIds.length === 0) {
+        return res.json({
+          success: true,
+          page: pageNum,
+          limit: limitNum,
+          total: 0,
+          items: [],
+        });
+      }
+      filter.companyId = { $in: companyIds };
+    } else if (companyId) {
+      filter.companyId = String(companyId).trim();
+    }
+
+    if (inspectorId) filter.assignedInspectorIds = String(inspectorId).trim();
+    if (userId) filter.createdByUserId = String(userId).trim();
+    if (isCompleted === "true") filter.isCompleted = true;
+    if (isCompleted === "false") filter.isCompleted = false;
+    if (isOpened === "true") filter.isOpened = true;
+    if (isOpened === "false") filter.isOpened = false;
+
+    const [items, total] = await Promise.all([
+      Transaction.find(filter)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limitNum)
+        .lean(),
+      Transaction.countDocuments(filter),
+    ]);
+
+    return res.json({
+      success: true,
+      page: pageNum,
+      limit: limitNum,
+      total,
+      items: items.map(serializeTransaction),
+    });
+  } catch (err) {
+    console.error("listTransactions error:", err);
+    return res.status(500).json({ success: false, message: "Server error" });
+  }
+}
+
 /**
  * GET /api/transactions/:id
- * Used by RealEstateFiller.fetch_record_by_id — returns the record
- * pre-flattened into the shape extract_record_values() expects.
  */
 async function getTransaction(req, res) {
   try {
@@ -82,9 +117,17 @@ async function getTransaction(req, res) {
       ? citiesById.get(String(evalData.cityId))
       : null;
 
+    const { item, warnings } = serializeTransactionForFiller(
+      doc,
+      client,
+      region,
+      city,
+    );
+
     return res.json({
       success: true,
-      item: serializeTransactionForFiller(doc, client, region, city),
+      item,
+      ...(warnings.length > 0 && { warnings }),
     });
   } catch (err) {
     console.error("getTransaction error:", err);
@@ -93,9 +136,7 @@ async function getTransaction(req, res) {
 }
 
 /**
- * POST /api/transactions/bulk
- * Used by RealEstateFiller.fetch_records_by_ids — same flattened shape
- * as getTransaction, just for many records at once.
+ * POST /api/transactions/bulk-get
  */
 async function bulkGetTransactions(req, res) {
   try {
@@ -108,7 +149,7 @@ async function bulkGetTransactions(req, res) {
 
     const validIds = ids.filter((id) => mongoose.Types.ObjectId.isValid(id));
     if (validIds.length === 0) {
-      return res.json({ success: true, items: [] });
+      return res.json({ success: true, items: [], warnings: [] });
     }
 
     const docs = await Transaction.find({ _id: { $in: validIds } }).lean();
@@ -119,17 +160,28 @@ async function bulkGetTransactions(req, res) {
       fetchCitiesByIds(docs.map((d) => d.evalData?.cityId)),
     ]);
 
+    const items = [];
+    const warnings = [];
+
+    for (const doc of docs) {
+      const evalData = doc.evalData ?? {};
+      const serialized = serializeTransactionForFiller(
+        doc,
+        doc.clientId ? clientsById.get(String(doc.clientId)) : null,
+        evalData.regionId ? regionsById.get(String(evalData.regionId)) : null,
+        evalData.cityId ? citiesById.get(String(evalData.cityId)) : null,
+      );
+
+      items.push(serialized.item);
+      if (serialized.warnings.length > 0) {
+        warnings.push(...serialized.warnings);
+      }
+    }
+
     return res.json({
       success: true,
-      items: docs.map((doc) => {
-        const evalData = doc.evalData ?? {};
-        return serializeTransactionForFiller(
-          doc,
-          doc.clientId ? clientsById.get(String(doc.clientId)) : null,
-          evalData.regionId ? regionsById.get(String(evalData.regionId)) : null,
-          evalData.cityId ? citiesById.get(String(evalData.cityId)) : null,
-        );
-      }),
+      items,
+      ...(warnings.length > 0 && { warnings }),
     });
   } catch (err) {
     console.error("bulkGetTransactions error:", err);
@@ -198,18 +250,9 @@ async function fetchClientsByIds(clientIds) {
       email: c.email ?? null,
     });
   }
-  console.log("map", map);
   return map;
 }
 
-/**
- * Looks up Region docs for a batch of evalData.regionId values in one
- * query, and returns a Map keyed by regionId string -> { taqeemId }.
- *
- * Same lenient-lookup behavior as fetchClientsByIds: regionId is a
- * free-form String on the Transaction's evalData, so only values that
- * are valid ObjectIds (the `regions` collection's _id) are looked up.
- */
 async function fetchRegionsByIds(regionIds) {
   const uniqueIds = [...new Set((regionIds || []).filter(Boolean))];
   if (uniqueIds.length === 0) return new Map();
@@ -220,20 +263,19 @@ async function fetchRegionsByIds(regionIds) {
   if (validIds.length === 0) return new Map();
 
   const regions = await Region.find({ _id: { $in: validIds } })
-    .select({ taqeemId: 1 })
+    .select({ taqeemId: 1, taqeemName: 1 })
     .lean();
 
   const map = new Map();
   for (const r of regions) {
-    map.set(r._id.toString(), { taqeemId: r.taqeemId ?? null });
+    map.set(r._id.toString(), {
+      taqeemId: r.taqeemId ?? null,
+      taqeemName: r.taqeemName ?? null,
+    });
   }
   return map;
 }
 
-/**
- * Same as fetchRegionsByIds, but for the `cities` collection, keyed off
- * evalData.cityId.
- */
 async function fetchCitiesByIds(cityIds) {
   const uniqueIds = [...new Set((cityIds || []).filter(Boolean))];
   if (uniqueIds.length === 0) return new Map();
@@ -244,12 +286,15 @@ async function fetchCitiesByIds(cityIds) {
   if (validIds.length === 0) return new Map();
 
   const cities = await City.find({ _id: { $in: validIds } })
-    .select({ taqeemId: 1 })
+    .select({ taqeemId: 1, taqeemName: 1 })
     .lean();
 
   const map = new Map();
   for (const c of cities) {
-    map.set(c._id.toString(), { taqeemId: c.taqeemId ?? null });
+    map.set(c._id.toString(), {
+      taqeemId: c.taqeemId ?? null,
+      taqeemName: c.taqeemName ?? null,
+    });
   }
   return map;
 }
@@ -304,58 +349,54 @@ function buildValuers(evalData) {
     .filter((v) => v.id);
 }
 
-/**
- * Mirrors extract_record_values() from realEstateSteps.py field-for-field,
- * so the Python side gets data already shaped to match field_map_1/2/3
- * instead of having to dig into evalData itself.
- *
- * `client` (optional) is the { name, phone, email } looked up from the
- * `clients` collection via doc.clientId. When present, it takes priority
- * over evalData for the corresponding fields, since the clients collection
- * is the source of truth for that contact info and evalData.clientName /
- * evalData.contactNo are often stale copies entered by hand on the form.
- *
- * `region` / `city` (optional) are the { taqeemId } docs looked up from
- * the `regions` / `cities` collections via evalData.regionId /
- * evalData.cityId. taqeemId is the only field needed from each, surfaced
- * as regionTaqeemId / cityTaqeemId alongside the existing regionName /
- * cityName (which still come straight from evalData).
- */
 function buildFillerValues(doc, client, region, city) {
   const evalData = doc.evalData ?? {};
   const buildingCondition = evalData.buildingCondition ?? {};
 
-  return {
+  const warnings = [];
+
+  // Resolve region name
+  let regionName = region?.taqeemName ? String(region.taqeemName).trim() : null;
+  if (!regionName) {
+    regionName = "الرياض";
+    warnings.push(
+      `Default regionName 'الرياض' used for transaction ID ${doc._id}`,
+    );
+  }
+
+  // Resolve city name
+  let cityName = city?.taqeemName ? String(city.taqeemName).trim() : null;
+  if (!cityName) {
+    cityName = "الرياض";
+    warnings.push(
+      `Default cityName 'الرياض' used for transaction ID ${doc._id}`,
+    );
+  }
+
+  const values = {
     // ── Step 1 ─────────────────────────────────────────────
-    report_title: doc.assignmentNumber ?? "0", // missing from record
-    valuationPurpose: doc.valuationPurpose ?? null, // top-level
-    valuationHypothesis: doc.valuationHypothesis ?? null, // top-level
-    valuationBasis: doc.valuationBasis ?? null, // top-level
-    report_type: null, // missing from record
+    report_title: doc.assignmentNumber ?? "0",
+    valuationPurpose: doc.valuationPurpose ?? null,
+    valuationHypothesis: doc.valuationHypothesis ?? null,
+    valuationBasis: doc.valuationBasis ?? null,
+    report_type: null,
     evalDate: evalData.evalDate ?? null,
     reportDate: evalData.reportDate ?? null,
     assumptions: evalData.assumptions ?? null,
-    special_assumptions: null, // missing from record
+    special_assumptions: null,
     finalAssetValue: evalData.finalAssetValue ?? null,
-    valuation_currency: null, // missing from record
-    report_asset_file: null, // missing from record
-    // sourced from the `clients` collection via doc.clientId; falls back
-    // to the evalData copy if the client lookup didn't resolve
+    valuation_currency: null,
+    report_asset_file: null,
     clientName: client?.name ?? evalData.clientName ?? null,
     contactNo: client?.phone ?? evalData.contactNo ?? null,
-    // previously always null ("missing from record") — now sourced from
-    // the clients collection
     email_address: client?.email ?? null,
     otherUsers: evalData.otherUsers ?? null,
-    // NOTE: this was the actual bug — extract_record_values() reads
-    // record.get("author1Id") at the TOP level, but author1Id only lives
-    // under evalData in the schema. Surfacing it here so the lookup works.
     valuer_name: evalData.author1Id ?? null,
-    contribution_percentage: null, // missing from record
+    contribution_percentage: null,
 
     // ── Step 2 ─────────────────────────────────────────────
     propertyType: evalData.propertyType ?? null,
-    inspected_at: evalData.evalDate ?? null, // closest match
+    inspected_at: evalData.evalDate ?? null,
     marketMethodTotal: evalData.marketMethodTotal ?? null,
     marketMeterPrice: evalData.marketMeterPrice ?? null,
     incomeTotal: evalData.incomeTotal ?? null,
@@ -365,11 +406,9 @@ function buildFillerValues(doc, client, region, city) {
     lng: evalData.lng ?? null,
     lat: evalData.lat ?? null,
     landUse: evalData.landUse ?? null,
-    country: null, // missing from record
-    regionName: evalData.regionName ?? null,
-    cityName: evalData.cityName ?? null,
-    // sourced from the `regions` / `cities` collections via
-    // evalData.regionId / evalData.cityId
+    country: null,
+    regionName,
+    cityName,
     regionTaqeemId: region?.taqeemId ?? null,
     cityTaqeemId: city?.taqeemId ?? null,
 
@@ -377,64 +416,48 @@ function buildFillerValues(doc, client, region, city) {
     blockNumber: evalData.blockNumber ?? null,
     parcelNumber: evalData.parcelNumber ?? null,
     deedNumber: evalData.deedNumber ?? null,
-    ownershipType: doc.ownershipType ?? null, // top-level
+    ownershipType: doc.ownershipType ?? null,
     ownershipPercentage: evalData.ownershipPercentage ?? null,
-    rental_duration: null, // missing from record
-    rental_end_date: null, // missing from record
-    street_facing_fronts: null, // missing from record
-    distance_from_city_center: null, // missing from record
+    rental_duration: null,
+    rental_end_date: null,
+    street_facing_fronts: null,
+    distance_from_city_center: null,
     surroundingEnvironment: evalData.surroundingEnvironment ?? null,
     landSpace: evalData.landSpace ?? null,
     propertyArea: evalData.propertyArea ?? null,
-    authorized_land_cover_percentage: null, // missing from record
-    authorized_height: null, // missing from record
-    land_leased: null, // missing from record
+    authorized_land_cover_percentage: null,
+    authorized_height: null,
+    land_leased: null,
     buildingCondition: buildingCondition.status ?? null,
     finishLevel: evalData.finishLevel ?? null,
-    furnishing_status: null, // missing from record
-    air_conditioning: null, // missing from record
+    furnishing_status: null,
+    air_conditioning: null,
     propertyModel: evalData.propertyModel ?? null,
     availableServices: evalData.availableServices ?? null,
     propertyAge: evalData.propertyAge ?? null,
     street: evalData.street ?? null,
   };
+
+  return { values, warnings };
 }
 
-/**
- * Serializer used by getTransaction / bulkGetTransactions — the filler
- * script's consumers. Returns base record fields PLUS the flattened
- * field-map values, PLUS `valuers`, so the script can use the record
- * almost directly without redoing the evalData extraction itself.
- *
- * `client` (optional) is passed straight through to buildFillerValues
- * so clientName / contactNo / email_address can be sourced from the
- * `clients` collection instead of (only) evalData.
- *
- * `region` / `city` (optional) are likewise passed straight through so
- * regionTaqeemId / cityTaqeemId can be sourced from the `regions` /
- * `cities` collections.
- */
 function serializeTransactionForFiller(doc, client, region, city) {
   const evalData = doc.evalData ?? {};
+  const { values, warnings } = buildFillerValues(doc, client, region, city);
 
   return {
-    // exposed under both keys: the script tracks records by `id` but
-    // patches the report id back using `_id`
-    id: doc._id.toString(),
-    _id: doc._id.toString(),
-
-    ...buildFillerValues(doc, client, region, city),
-
-    // drives the is_valuers_step branch in create_and_submit_report()
-    valuers: buildValuers(evalData),
-
-    // raw evalData kept too, in case anything downstream still wants it
-    evalData,
-
-    reportId: doc.reportId ?? null,
-    isOpened: doc.isOpened ?? false,
-    isCompleted: doc.isCompleted ?? false,
-    submitState: doc.submitState ?? 0,
+    item: {
+      id: doc._id.toString(),
+      _id: doc._id.toString(),
+      ...values,
+      valuers: buildValuers(evalData),
+      evalData,
+      reportId: doc.reportId ?? null,
+      isOpened: doc.isOpened ?? false,
+      isCompleted: doc.isCompleted ?? false,
+      submitState: doc.submitState ?? 0,
+    },
+    warnings,
   };
 }
 
